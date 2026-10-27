@@ -1,0 +1,12 @@
+[
+  {
+    "title": "the SQL toggle on a no-text stream shows \"no text fields\" and stays in filter mode",
+    "action": "append",
+    "verifies": "Toggling SQL on the int-only nofts_c stream reverts to filter mode and shows the \"This stream has no text fields to search.\" refusal panel, with the editor left at the bare word."
+  },
+  {
+    "title": "the SQL toggle on a held NOT timeout filter shows \"empty or invalid\" and stays in filter mode",
+    "action": "append",
+    "verifies": "Toggling SQL on a held NOT timeout filter reverts SQL mode to false, shows the \"Search query is empty or invalid.\" notification, and leaves the editor unchanged (no SELECT / match_all)."
+  }
+]

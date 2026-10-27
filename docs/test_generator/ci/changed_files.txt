@@ -1,0 +1,5 @@
+tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js
+web/src/composables/useLogs/freeTextSearch.spec.ts
+web/src/composables/useLogs/freeTextSearch.ts
+web/src/plugins/logs/Index.noFtsRecovery.spec.ts
+web/src/plugins/logs/Index.vue

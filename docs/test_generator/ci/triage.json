@@ -1,0 +1,26 @@
+{
+  "feature_slug": "logs-free-text-sql-toggle",
+  "feature_title": "Logs Free-Text SQL Toggle Schema Load",
+  "area": "Logs",
+  "edition": "oss",
+  "needs_e2e": true,
+  "needs_api": false,
+  "spec_filename": "logsFreeText.spec.js",
+  "spec_path": "tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js",
+  "playwright_group": "Logs-Features",
+  "source_files": [
+    "web/src/composables/useLogs/freeTextSearch.ts",
+    "web/src/plugins/logs/Index.vue"
+  ],
+  "existing_tests_in_diff": true,
+  "skip": false,
+  "skip_reason": "",
+  "rationale": {
+    "edition": "All five changed paths live under web/src/** (freeTextSearch.ts, Index.vue) and tests/ui-testing/playwright-tests/Logs/** — no enterprise/ or o2_enterprise/ paths, and no #[cfg(feature)] Rust changes. The touched UI (logs Index.vue search bar + useLogs composable) is not gated behind config.isCloud or config.isEnterprise/withFeatureGate, so the feature runs in the plain OSS build.",
+    "skip": "Not skipped: the trigger comment and feature hint are empty (no tests-added label or explicit opt-out), and the change alters a user-facing flow — the logs SQL-mode toggle now waits for a stream's schema before deciding between raw SQL and match_all, so it is a real UI behavior change, not docs/CI/comment-only.",
+    "e2e": "E2E is warranted because the SQL-mode toggle behavior is user-exercisable: on a no-FTS stream a bare-word search must be refused (revert to free text) instead of silently rendered as raw SQL, and on a full-text stream it must still render match_all even when the schema loads slowly. This race condition is only observable through the UI, not unit tests.",
+    "area": "Logs — the bulk of the change is in web/src/plugins/logs/Index.vue and web/src/composables/useLogs/freeTextSearch.ts, and the modified spec lives in tests/ui-testing/playwright-tests/Logs/.",
+    "group": "Logs-Features — the modified logsFreeText.spec.js is a logs search feature spec, and its siblings (searchPatterns.spec.js, indexquery.spec.js, logs-sql-autocomplete.spec.js, monaco-query-prefill.spec.js) all sit in the Logs-Features shard, so the free-text search spec belongs with them.",
+    "existing_tests": "The diff modifies tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js, adding two new Playwright E2E tests that cover exactly the slow-schema SQL-toggle behavior (#15549) — one for the no-FTS refusal, one for the full-text match_all. The changed freeTextSearch.spec.ts and Index.noFtsRecovery.spec.ts are Vitest unit tests and are not E2E coverage. The new E2E tests cover the new feature, so this is an enhance case."
+  }
+}

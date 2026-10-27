@@ -1,0 +1,10 @@
+{
+  "action": "append",
+  "target_spec": "tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js",
+  "existing_tests_considered": [
+    "tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js",
+    "tests/ui-testing/playwright-tests/Logs/logsNoFtsRecovery.spec.js"
+  ],
+  "needs_registration": false,
+  "rationale": "The dev's own diff already added the two core #15549 slow-schema tests (FTS match_all render + no-FTS refusal) to logsFreeText.spec.js, and the pre-existing AC6.3 test covers the fast path (schema already loaded). Together these cover the headline fix (schema-load wait before rewrite). Two distinct WIRED behaviors remain without E2E coverage and belong in the same spec: (1) SQL toggle refused on a no-string-field stream (nofts_c -> 'This stream has no text fields to search.'), and (2) SQL toggle refused on a held filter (NOT timeout -> 'Search query is empty or invalid.' notification). Append those two test() blocks to the existing spec; no new spec registration needed since logsFreeText.spec.js is already in ci_matrix.json."
+}

@@ -375,6 +375,35 @@ test.describe('Logs bare-word search (item 1)', () => {
       .toBe(`SELECT * FROM "${FTS}" WHERE match_all('timeout')`);
   });
 
+  test('the SQL toggle on a no-text stream shows "no text fields" and stays in filter mode', {
+    tag: ['@freeText', '@logs'],
+  }, async ({ page }) => {
+    const logsPage = new PageManager(page).logsPage;
+    await open(page, NOTEXT, 'timeout');
+    await logsPage.expectFieldListItemVisible('code');
+    await logsPage._setSqlModeViaVue(true);
+    await expect(page.locator(panel)).toBeVisible({ timeout: 15000 });
+    await expect(page.locator(panel)).toContainText('This stream has no text fields to search.', {
+      timeout: 15000,
+    });
+    await expect.poll(() => logsPage._isSqlModeEnabledViaVue()).toBe(false);
+    expect(await editorText(page)).toBe('timeout');
+    expect(await editorText(page)).not.toContain('SELECT');
+  });
+
+  test('the SQL toggle on a held NOT timeout filter shows "empty or invalid" and stays in filter mode', {
+    tag: ['@freeText', '@logs'],
+  }, async ({ page }) => {
+    const logsPage = new PageManager(page).logsPage;
+    await open(page, FTS, 'NOT timeout');
+    await logsPage._setSqlModeViaVue(true);
+    await expect.poll(() => logsPage._isSqlModeEnabledViaVue()).toBe(false);
+    await logsPage.waitForNotificationWithText('Search query is empty or invalid.', 15000);
+    expect(await editorText(page)).toBe('NOT timeout');
+    expect(await editorText(page)).not.toContain('SELECT');
+    expect(await editorText(page)).not.toContain('match_all');
+  });
+
   test('field values use the rendered text and keep the results (AC6.4)', {
     tag: ['@freeText', '@logs'],
   }, async ({ page }) => {

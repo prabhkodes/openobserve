@@ -1,0 +1,18 @@
+{
+  "feature_slug": "logs-free-text-sql-toggle",
+  "feature_title": "Logs Free-Text SQL Toggle Schema Load",
+  "area": "Logs",
+  "edition": "oss",
+  "needs_e2e": true,
+  "needs_api": false,
+  "spec_filename": "logsFreeText.spec.js",
+  "spec_path": "tests/ui-testing/playwright-tests/Logs/logsFreeText.spec.js",
+  "playwright_group": "Logs-Features",
+  "source_files": [
+    "web/src/composables/useLogs/freeTextSearch.ts",
+    "web/src/plugins/logs/Index.vue"
+  ],
+  "existing_tests_in_diff": true,
+  "skip": false,
+  "skip_reason": ""
+}
