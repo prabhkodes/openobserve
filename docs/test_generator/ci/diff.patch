@@ -1,0 +1,2990 @@
+===== COMPLETE LIST OF CHANGED FILES (57 files) =====
+# AUTHORITATIVE: this list is never truncated. The diff BODY below may be trimmed for
+# very large PRs, so decide WHICH files/areas changed (e.g. web/src frontend) from THIS list.
+scripts/translations/.translation_state.json
+src/api/http/src/handler/http/router/mod.rs
+src/api/management/src/request/alerts/dedup_stats.rs
+src/api/management/src/request/alerts/history.rs
+src/api/management/src/request/alerts/incidents.rs
+src/api/management/src/request/gen_ai.rs
+src/api/management/src/request/service_streams/mod.rs
+src/api/management/src/request/short_url/mod.rs
+src/config/src/config.rs
+src/config/src/meta/alerts/incidents.rs
+src/config/src/meta/alerts/rca_runs.rs
+src/core/src/ai_chat/fork.rs
+src/core/src/ai_chat/rca_ledger.rs
+src/core/src/ai_chat/rca_thread.rs
+src/core/src/alerts/incidents.rs
+src/core/src/alerts/rca_live.rs
+src/core/src/alerts/rca_runs.rs
+src/core/src/alerts/rca_turn.rs
+src/core/src/traces/service_graph/api.rs
+src/infra/src/table/alert_incidents.rs
+src/infra/src/table/migration/m20261026_000001_backfill_v1_rca_pointer.rs
+src/infra/src/table/migration/mod.rs
+src/infra/src/table/rca_runs.rs
+web/src/components/RichTextInput.spec.ts
+web/src/components/RichTextInput.vue
+web/src/components/alerts/IncidentList.spec.ts
+web/src/components/alerts/IncidentList.vue
+web/src/components/alerts/IncidentRCAAnalysis.spec.ts
+web/src/components/alerts/IncidentRCAAnalysis.vue
+web/src/components/alerts/rca/RcaThreadColumn.spec.ts
+web/src/components/alerts/rca/RcaThreadColumn.vue
+web/src/components/alerts/rca/RcaVerdictCard.spec.ts
+web/src/components/alerts/rca/RcaVerdictCard.vue
+web/src/locales/languages/ar-SA.json
+web/src/locales/languages/de-DE.json
+web/src/locales/languages/en-US.json
+web/src/locales/languages/es-ES.json
+web/src/locales/languages/fr-FR.json
+web/src/locales/languages/it-IT.json
+web/src/locales/languages/ja-JP.json
+web/src/locales/languages/ko-KR.json
+web/src/locales/languages/nl-NL.json
+web/src/locales/languages/pl-PL.json
+web/src/locales/languages/pt-PT.json
+web/src/locales/languages/ru-RU.json
+web/src/locales/languages/tr-TR.json
+web/src/locales/languages/vi-VN.json
+web/src/locales/languages/zh-CN.json
+web/src/locales/languages/zh-TW.json
+web/src/services/alerts.ts
+web/src/services/incidents.ts
+web/src/utils/formatters.ts
+web/src/utils/incidents/rcaCell.spec.ts
+web/src/utils/incidents/rcaCell.ts
+web/src/utils/incidents/rcaSteering.ts
+web/src/utils/incidents/rcaThread.spec.ts
+web/src/utils/incidents/rcaThread.ts
+===== END CHANGED FILES =====
+
+diff --git a/scripts/translations/.translation_state.json b/scripts/translations/.translation_state.json
+index 01d0879badfe..e0c746b61e77 100644
+--- a/scripts/translations/.translation_state.json
++++ b/scripts/translations/.translation_state.json
+@@ -4395,6 +4395,7 @@
+       "alertDetailsHeader": "ee726e720b86a2a4",
+       "alertFrequency": "d4ebef9d2d346f9f",
+       "alertGraph": "c0eb38605bf64739",
++      "alertGroupTooltip": "1466f4a5a8e61d71",
+       "alertName": "60a6c1eb5253724b",
+       "alertTriggers": "5c124b14512d5bc3",
+       "alertsInFiveMins": "a34b40ce6a72597c",
+@@ -4451,6 +4452,7 @@
+       "manage": "5a23444828db654a",
+       "markAsAcknowledgedTooltip": "775131341b96da9c",
+       "markAsResolvedTooltip": "303cc95a2c5cf3e3",
++      "moreAlertGroups": "ecccea94c62457a7",
+       "moreDimensions": "ecccea94c62457a7",
+       "noActivityYet": "0a12b92ce7899469",
+       "noAlertActivityData": "af283e356813408c",
+@@ -4544,6 +4546,7 @@
+         "reanalyzingFresh": "f4f8db0801047a8e",
+         "reportAfterRun": "ed92d0a58440ac8c",
+         "reportLoadFailed": "7434883a10864fa5",
++        "resumingFrom": "7b3b3d70d9d867fd",
+         "runAt": "04ce0106ff9a8883",
+         "runLive": "3c100470af4021f1",
+         "showDetails": "1af77ee273cbdaae",
+diff --git a/src/api/http/src/handler/http/router/mod.rs b/src/api/http/src/handler/http/router/mod.rs
+index a977f7d9a060..1fa65487fb98 100644
+--- a/src/api/http/src/handler/http/router/mod.rs
++++ b/src/api/http/src/handler/http/router/mod.rs
+@@ -2727,14 +2727,7 @@ pub fn create_app_router(ui_routes: fn(&str) -> Router) -> Router {
+             .merge(crate::router::http::create_splunk_collector_proxy_routes())
+             .merge(router_routes)
+     } else {
+-        // Non-router node: use direct service routes
+-        Router::new()
+-            .merge(basic_routes())
+-            .merge(splunk_collector_routes())
+-            .nest("/config", config_routes())
+-            .nest("/api", service_routes())
+-            .merge(other_service_routes())
+-            .merge(proxy_routes(true))
++        local_routes()
+     };
+ 
+     // Ensure redirect takes into account base_uri
+@@ -2788,6 +2781,17 @@ pub fn create_app_router(ui_routes: fn(&str) -> Router) -> Router {
+     outer
+ }
+ 
++/// Every route a non-router node serves itself, without the UI.
++fn local_routes() -> Router {
++    Router::new()
++        .merge(basic_routes())
++        .merge(splunk_collector_routes())
++        .nest("/config", config_routes())
++        .nest("/api", service_routes())
++        .merge(other_service_routes())
++        .merge(proxy_routes(true))
++}
++
+ /// Root-only node management routes, before the authentication layers `basic_routes` adds.
+ fn node_routes() -> Router {
+     let node_routes = Router::new()
+@@ -5148,4 +5152,85 @@ mod tests {
+             StatusCode::NOT_FOUND
+         );
+     }
++
++    // OSS documents enterprise-only operations without routing them, so this holds only there.
++    #[cfg(feature = "enterprise")]
++    /// `METHOD /path` OpenAPI operations a non-router node does not route.
++    const UNROUTED_OPENAPI_OPERATIONS: &[&str] = &[
++        // The deprecated v1 folder API is still documented; only `/v2/{org_id}/folders` is routed.
++        "DELETE /api/{org_id}/folders/{folder_id}",
++        "GET /api/{org_id}/folders",
++        "GET /api/{org_id}/folders/name/{folder_name}",
++        "GET /api/{org_id}/folders/{folder_id}",
++        "POST /api/{org_id}/folders",
++        "PUT /api/{org_id}/folders/{folder_id}",
++        // o2-enterprise rbac_known_gaps.txt keys this path; fixing it needs a paired change there.
++        "POST /{org_id}/service_streams/_correlate",
++    ];
++
++    #[cfg(feature = "enterprise")]
++    fn any_param(template: &str) -> String {
++        template
++            .split('/')
++            .map(|s| if is_param(s) { "{}" } else { s })
++            .collect::<Vec<_>>()
++            .join("/")
++    }
++
++    #[cfg(feature = "enterprise")]
++    /// An unrouted documented path meets the auth layer's 401, failing its MCP tool.
++    #[tokio::test]
++    async fn every_openapi_operation_reaches_the_route_it_documents() {
++        let app = local_routes().route_layer(middleware::from_fn(
++            |req: Request<Body>, _next: Next| async move {
++                let matched = req
++                    .extensions()
++                    .get::<axum::extract::MatchedPath>()
++                    .map(|p| p.as_str().to_string())
++                    .unwrap_or_default();
++                (StatusCode::IM_A_TEAPOT, matched).into_response()
++            },
++        ));
++        let spec = super::openapi::ApiDoc::openapi();
++        let mut unrouted = Vec::new();
++        for (template, item) in &spec.paths.paths {
++            let operations = [
++                (Method::GET, item.get.is_some()),
++                (Method::PUT, item.put.is_some()),
++                (Method::POST, item.post.is_some()),
++                (Method::DELETE, item.delete.is_some()),
++                (Method::PATCH, item.patch.is_some()),
++                (Method::HEAD, item.head.is_some()),
++            ];
++            let uri = template
++                .split('/')
++                .map(|s| if is_param(s) { "zz" } else { s })
++                .collect::<Vec<_>>()
++                .join("/");
++            for (method, _) in operations.into_iter().filter(|(_, documented)| *documented) {
++                let req = Request::builder()
++                    .method(method.clone())
++                    .uri(&uri)
++                    .body(Body::empty())
++                    .unwrap();
++                let resp = app.clone().oneshot(req).await.unwrap();
++                let status = resp.status();
++                let bytes = axum::body::to_bytes(resp.into_body(), usize::MAX)
++                    .await
++                    .unwrap();
++                let matched = String::from_utf8_lossy(&bytes);
++                if status != StatusCode::IM_A_TEAPOT || any_param(&matched) != any_param(template) {
++                    unrouted.push(format!("{method} {template}"));
++                }
++            }
++        }
++        unrouted.sort();
++        let mut allowed = UNROUTED_OPENAPI_OPERATIONS.to_vec();
++        allowed.sort_unstable();
++        assert_eq!(
++            unrouted, allowed,
++            "each documented operation must resolve to the route of the same template; fix the \
++             utoipa `path`, or list a path no local route serves in UNROUTED_OPENAPI_OPERATIONS"
++        );
++    }
+ }
+diff --git a/src/api/management/src/request/alerts/dedup_stats.rs b/src/api/management/src/request/alerts/dedup_stats.rs
+index b3e65d883370..abd7ccbd5bdb 100644
+--- a/src/api/management/src/request/alerts/dedup_stats.rs
++++ b/src/api/management/src/request/alerts/dedup_stats.rs
+@@ -41,7 +41,7 @@ pub struct DedupSummaryResponse {
+ /// Get deduplication summary statistics for an organization
+ #[utoipa::path(
+     get,
+-    path = "/{org_id}/alerts/dedup/summary",
++    path = "/v2/{org_id}/alerts/dedup/summary",
+     context_path = "/api",
+     tag = "Alerts",
+     operation_id = "GetDedupSummary",
+diff --git a/src/api/management/src/request/alerts/history.rs b/src/api/management/src/request/alerts/history.rs
+index 1e6513b5a417..02103ccd3443 100644
+--- a/src/api/management/src/request/alerts/history.rs
++++ b/src/api/management/src/request/alerts/history.rs
+@@ -152,7 +152,7 @@ pub struct AlertHistoryResponse {
+ /// authentication.
+ #[utoipa::path(
+     get,
+-    path = "/{org_id}/alerts/history",
++    path = "/v2/{org_id}/alerts/history",
+     context_path = "/api",
+     tag = "Alerts",
+     operation_id = "GetAlertHistory",
+diff --git a/src/api/management/src/request/alerts/incidents.rs b/src/api/management/src/request/alerts/incidents.rs
+index 683f225367fe..1f0861867d93 100644
+--- a/src/api/management/src/request/alerts/incidents.rs
++++ b/src/api/management/src/request/alerts/incidents.rs
+@@ -2211,6 +2211,7 @@ mod tests {
+             muted_by_downtime_id: None,
+             rca: None,
+             rca_off_reason: None,
++            alert_groups: None,
+         };
+ 
+         let response = ListIncidentsResponse {
+@@ -2472,6 +2473,7 @@ mod tests {
+             muted_by_downtime_id: None,
+             rca: None,
+             rca_off_reason: Some("l0_off".to_string()),
++            alert_groups: None,
+         };
+         let json = serde_json::to_value(&incident).unwrap();
+         assert!(json.as_object().unwrap().contains_key("rca"));
+diff --git a/src/api/management/src/request/gen_ai.rs b/src/api/management/src/request/gen_ai.rs
+index d6a0d8ad6753..a1bd83351776 100644
+--- a/src/api/management/src/request/gen_ai.rs
++++ b/src/api/management/src/request/gen_ai.rs
+@@ -103,6 +103,7 @@ pub struct ClearAgentRegistryResponse {
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/settings/gen_ai/agent_mapping",
++    context_path = "/api",
+     tag = "GenAI Settings",
+     operation_id = "GetGenAiAgentMapping",
+     params(("org_id" = String, Path, description = "Organization ID")),
+@@ -151,6 +152,7 @@ pub async fn get_agent_mapping(
+ #[utoipa::path(
+     put,
+     path = "/{org_id}/settings/gen_ai/agent_mapping",
++    context_path = "/api",
+     tag = "GenAI Settings",
+     operation_id = "SaveGenAiAgentMapping",
+     params(("org_id" = String, Path, description = "Organization ID")),
+@@ -213,6 +215,7 @@ pub async fn save_agent_mapping(
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/gen_ai/agents",
++    context_path = "/api",
+     tag = "GenAI Settings",
+     operation_id = "ListGenAiAgents",
+     params(
+@@ -270,6 +273,7 @@ pub async fn list_scored_agents(
+ #[utoipa::path(
+     delete,
+     path = "/{org_id}/settings/gen_ai/agent_registry",
++    context_path = "/api",
+     tag = "GenAI Settings",
+     operation_id = "ClearGenAiAgentRegistry",
+     params(
+diff --git a/src/api/management/src/request/service_streams/mod.rs b/src/api/management/src/request/service_streams/mod.rs
+index 01872b4d26c7..8d556a5e68d7 100644
+--- a/src/api/management/src/request/service_streams/mod.rs
++++ b/src/api/management/src/request/service_streams/mod.rs
+@@ -41,6 +41,7 @@ use crate::common::meta::http::HttpResponse as MetaHttpResponse;
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/service_streams/_analytics",
++    context_path = "/api",
+     tag = "Service Streams",
+     operation_id = "GetServiceStreamAnalytics",
+     params(
+@@ -100,6 +101,7 @@ pub async fn get_dimension_analytics(
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/service_streams",
++    context_path = "/api",
+     tag = "Service Streams",
+     operation_id = "ListServiceStreams",
+     params(
+@@ -327,6 +329,7 @@ pub struct CorrelationRequest {
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/service_streams/config/identity",
++    context_path = "/api",
+     tag = "Service Streams",
+     operation_id = "GetServiceIdentityConfig",
+     params(("org_id" = String, Path, description = "Organization ID")),
+@@ -368,6 +371,7 @@ pub async fn get_identity_config(
+ #[utoipa::path(
+     put,
+     path = "/{org_id}/service_streams/config/identity",
++    context_path = "/api",
+     tag = "Service Streams",
+     operation_id = "SaveServiceIdentityConfig",
+     params(("org_id" = String, Path, description = "Organization ID")),
+diff --git a/src/api/management/src/request/short_url/mod.rs b/src/api/management/src/request/short_url/mod.rs
+index aa1c130caecf..67a423219f8c 100644
+--- a/src/api/management/src/request/short_url/mod.rs
++++ b/src/api/management/src/request/short_url/mod.rs
+@@ -85,7 +85,7 @@ pub struct RetrieveQuery {
+ #[utoipa::path(
+     get,
+     path = "/{org_id}/short/{short_id}",
+-    context_path = "/short",
++    context_path = "/api",
+     operation_id = "resolveShortUrl",
+     summary = "Resolve short URL",
+     description = "Resolves a shortened URL back to its original destination. By default, this endpoint redirects the user to the original URL. When the 'type=ui' query parameter is provided, it returns the original URL as JSON instead of performing a redirect. This is useful for applications that need to inspect or validate URLs before navigation.",
+diff --git a/src/config/src/config.rs b/src/config/src/config.rs
+index 8bf0c6270dfb..0bfa6d8ee1ad 100644
+--- a/src/config/src/config.rs
++++ b/src/config/src/config.rs
+@@ -118,7 +118,8 @@ pub type RwBTreeMap<K, V> = tokio::sync::RwLock<BTreeMap<K, V>>;
+ // 118: add the lease columns to org_cleanup_tasks.
+ // 119: create public_dashboards, public_dashboard_org_settings and public_dashboard_outbox.
+ // 120: add search_type to search_queue.
+-pub const DB_SCHEMA_VERSION: u64 = 120;
++// 121: point pre-run incidents' run summary at their newest v1 report.
++pub const DB_SCHEMA_VERSION: u64 = 121;
+ pub const DB_SCHEMA_KEY: &str = "/db_schema_version/";
+ 
+ // global version variables
+diff --git a/src/config/src/meta/alerts/incidents.rs b/src/config/src/meta/alerts/incidents.rs
+index a2907b87204d..99575a1b7dbc 100644
+--- a/src/config/src/meta/alerts/incidents.rs
++++ b/src/config/src/meta/alerts/incidents.rs
+@@ -348,6 +348,19 @@ pub struct Incident {
+     /// Why automatic analysis runs never start for this incident (`l0_off`).
+     #[serde(default)]
+     pub rca_off_reason: Option<String>,
++
++    /// Every alert that fired into the incident and how often, most-fired first; list only.
++    #[serde(default, skip_serializing_if = "Option::is_none")]
++    pub alert_groups: Option<Vec<IncidentAlertGroup>>,
++}
++
++/// One alert's firings within an incident, for the list row.
++#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
++pub struct IncidentAlertGroup {
++    pub alert_id: String,
++    pub alert_name: String,
++    /// Times this alert fired into the incident
++    pub count: i32,
+ }
+ 
+ /// Alert info within an incident (junction table representation)
+@@ -1805,6 +1818,7 @@ mod tests {
+             muted_by_downtime_id: None,
+             rca: None,
+             rca_off_reason: None,
++            alert_groups: None,
+         }
+     }
+ 
+diff --git a/src/config/src/meta/alerts/rca_runs.rs b/src/config/src/meta/alerts/rca_runs.rs
+index 04a44bc24c8d..c61de304eb16 100644
+--- a/src/config/src/meta/alerts/rca_runs.rs
++++ b/src/config/src/meta/alerts/rca_runs.rs
+@@ -200,6 +200,8 @@ pub struct RunSummaryFields {
+     pub stage_count: u8,
+     pub steps: u32,
+     pub tool_calls: u32,
++    /// Finished steps a Resume of the ended run keeps; `None` before the run ends.
++    pub reusable_steps: Option<u32>,
+     /// Up to three users who steered the latest run, newest first.
+     pub steered_by: Vec<String>,
+     pub unblocked_by: Option<String>,
+@@ -220,6 +222,7 @@ impl Default for RunSummaryFields {
+             stage_count: RCA_STAGE_COUNT,
+             steps: 0,
+             tool_calls: 0,
++            reusable_steps: None,
+             steered_by: Vec::new(),
+             unblocked_by: None,
+             detail: None,
+diff --git a/src/core/src/ai_chat/fork.rs b/src/core/src/ai_chat/fork.rs
+index 7d953d2faf97..96527a29866e 100644
+--- a/src/core/src/ai_chat/fork.rs
++++ b/src/core/src/ai_chat/fork.rs
+@@ -202,6 +202,15 @@ pub fn plan_resume(events: &[DurableEvent]) -> Result<ResumePlan, ResumeRefusal>
+     })
+ }
+ 
++/// Finished steps a Resume keeps: 0 when none finished, `None` once the report was submitted.
++pub fn reusable_steps(events: &[DurableEvent]) -> Option<u32> {
++    match plan_resume(events) {
++        Ok(plan) => Some(plan.reused_steps),
++        Err(ResumeRefusal::NoFinishedStep) => Some(0),
++        Err(ResumeRefusal::ReportSubmitted) => None,
++    }
++}
++
+ /// Whether `message_id`'s events in `from..to` are only its text, some of it visible.
+ fn only_text_before(events: &[DurableEvent], message_id: &str, from: i64, to: i64) -> bool {
+     let mut visible = false;
+diff --git a/src/core/src/ai_chat/rca_ledger.rs b/src/core/src/ai_chat/rca_ledger.rs
+index 2df552697b0f..78b9c0413105 100644
+--- a/src/core/src/ai_chat/rca_ledger.rs
++++ b/src/core/src/ai_chat/rca_ledger.rs
+@@ -197,16 +197,15 @@ fn ack_of(call: &ToolPart<'_>) -> Option<TranscriptAck> {
+     })
+ }
+ 
+-fn is_sentinel(call: &ToolPart<'_>) -> bool {
+-    matches!(call.kind(), ThreadPart::Step(_))
+-        || [
+-            RECORD_HYPOTHESIS,
+-            RECORD_BLIND_SPOT,
+-            SUBMIT_REPORT,
+-            ASK_RESPONDERS,
+-            ACKNOWLEDGE_STEERING,
+-        ]
+-        .contains(&call.tool)
++/// Only a hypothesis, blind spot, report or new question closes an open question.
++fn closes_question(call: &ToolPart<'_>) -> bool {
++    [
++        RECORD_HYPOTHESIS,
++        RECORD_BLIND_SPOT,
++        SUBMIT_REPORT,
++        ASK_RESPONDERS,
++    ]
++    .contains(&call.tool)
+ }
+ 
+ /// Decode the committed events of an RCA session.
+@@ -228,7 +227,7 @@ pub fn decode_run(events: &[DurableEvent]) -> RunTranscript {
+     let mut unread: Vec<usize> = Vec::new();
+     let mut unanswered_user: Option<usize> = None;
+     let mut last_read_user: Option<usize> = None;
+-    // The last completed sentinel: its seq, message position and question, if one.
++    // The last completed closing sentinel: its seq, message position and question, if one.
+     let mut last_sentinel: Option<(i64, usize, Option<TranscriptQuestion>)> = None;
+     let empty = Map::new();
+     for (position, (msg_id, info)) in folded.infos.iter().enumerate() {
+@@ -315,7 +314,7 @@ pub fn decode_run(events: &[DurableEvent]) -> RunTranscript {
+                 }
+             }
+             if call.status == "completed"
+-                && is_sentinel(&call)
++                && closes_question(&call)
+                 && last_sentinel.as_ref().is_none_or(|(last, ..)| seq >= *last)
+             {
+                 last_sentinel = Some((seq, position, question));
+@@ -1421,6 +1420,31 @@ pub(crate) mod tests {
+             "a visible tool call is no sentinel"
+         );
+ 
++        let mut stepped = base();
++        stepped.tool(
++            "msg_02",
++            "prt_s2",
++            "record_step",
++            "completed",
++            json!({"title": "Await flag change actor"}),
++            json!({"output": "{}"}),
++            300,
++            301,
++        );
++        assert_eq!(
++            open(&stepped).as_deref(),
++            Some("call_prt_q1"),
++            "a step marker after the ask keeps it open"
++        );
++
++        let mut acked = base();
++        ack(&mut acked, "msg_02", "prt_a1", S1, "applied", "ok", 300);
++        assert_eq!(
++            open(&acked).as_deref(),
++            Some("call_prt_q1"),
++            "a steering ack after the ask keeps it open"
++        );
++
+         let mut submitted = base();
+         submitted.tool(
+             "msg_02",
+diff --git a/src/core/src/ai_chat/rca_thread.rs b/src/core/src/ai_chat/rca_thread.rs
+index dc9dc3ea509f..a740b748ecea 100644
+--- a/src/core/src/ai_chat/rca_thread.rs
++++ b/src/core/src/ai_chat/rca_thread.rs
+@@ -235,6 +235,9 @@ pub struct RcaThread {
+     /// With `truncated`: the last seq that was saved (-1: none).
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub saved_through_seq: Option<i64>,
++    /// Finished steps a Resume of this ended run keeps; `None` while live or once reported.
++    #[serde(skip_serializing_if = "Option::is_none")]
++    pub reusable_steps: Option<u32>,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Serialize, ToSchema)]
+@@ -366,6 +369,7 @@ impl RcaThread {
+             stats: ThreadStats::default(),
+             truncated: false,
+             saved_through_seq: None,
++            reusable_steps: None,
+         }
+     }
+ }
+@@ -731,6 +735,7 @@ impl Builder {
+             steps,
+             truncated: false,
+             saved_through_seq: None,
++            reusable_steps: None,
+         }
+     }
+ }
+diff --git a/src/core/src/alerts/incidents.rs b/src/core/src/alerts/incidents.rs
+index 71278b3017b9..bd6187349666 100644
+--- a/src/core/src/alerts/incidents.rs
++++ b/src/core/src/alerts/incidents.rs
+@@ -2216,25 +2216,29 @@ pub async fn list_incidents(
+ 
+     // Get actual alert counts from junction table (source of truth)
+     let incident_ids: Vec<String> = incidents.iter().map(|i| i.id.clone()).collect();
+-    let actual_counts = infra::table::alert_incidents::get_alert_counts(&incident_ids).await?;
++    let mut actual_counts = infra::table::alert_incidents::get_alert_counts(&incident_ids).await?;
+ 
+     let incidents_list: Vec<Incident> = incidents
+         .into_iter()
+         .map(|i| {
+-            let mut incident = model_to_incident_with_topology(i.clone(), None);
++            let counts = actual_counts.remove(&i.id);
++            let mut incident = model_to_incident_with_topology(i, None);
++            let Some(counts) = counts else {
++                incident.alert_groups = Some(Vec::new());
++                return incident;
++            };
+ 
+             // Fix alert_count from actual triggers (self-healing for corrupted data)
+-            if let Some(&actual_count) = actual_counts.get(&i.id)
+-                && incident.alert_count != actual_count
+-            {
++            if incident.alert_count != counts.total {
+                 log::debug!(
+                     "[incidents] List: Incident {} alert_count mismatch: stored={}, actual={}",
+-                    i.id,
++                    incident.id,
+                     incident.alert_count,
+-                    actual_count
++                    counts.total
+                 );
+-                incident.alert_count = actual_count;
++                incident.alert_count = counts.total;
+             }
++            incident.alert_groups = Some(counts.groups);
+ 
+             incident
+         })
+@@ -3014,6 +3018,7 @@ fn model_to_incident_with_topology(
+         muted_by_downtime_id: db_model.muted_by_downtime_id,
+         rca,
+         rca_off_reason: db_model.rca_off_reason,
++        alert_groups: None,
+     }
+ }
+ 
+@@ -4128,18 +4133,36 @@ mod tests {
+     #[cfg(feature = "enterprise")]
+     #[tokio::test]
+     async fn the_list_carries_each_incidents_run_summary() {
+-        use config::meta::alerts::rca_runs::{RunState, RunTrigger};
++        use config::meta::alerts::rca_runs::{ReportFormat, RunState, RunTrigger};
+ 
+-        use crate::alerts::rca_runs::tests::{add_incident, db, new_incident, start};
++        use crate::alerts::rca_runs::{
++            rca_detail,
++            tests::{
++                add_incident, completed_at, db, incident_row, new_incident, pre_run_topology, start,
++            },
++        };
+ 
+         let _db = db().await;
+         let (org, analyzed) = new_incident(None).await;
+         let run_id = start(&org, &analyzed, RunTrigger::AutoNewIncident).await;
+         let never = add_incident(&org, None).await;
++        // Reports from before runs existed: dated by the archive, else by the Complete event.
++        let archived = add_incident(&org, Some(pre_run_topology())).await;
++        let single = add_incident(
++            &org,
++            Some(serde_json::json!({"nodes": [], "edges": [], "suggested_root_cause": "r"})),
++        )
++        .await;
++        completed_at(&org, &single, 150).await;
++        let rerun = add_incident(&org, Some(pre_run_topology())).await;
++        let rerun_id = start(&org, &rerun, RunTrigger::Manual).await;
++        infra::table::rca_runs::backfill_v1_pointers_for_tests()
++            .await
++            .unwrap();
+ 
+         let (incidents, total) = list_incidents(&org, None, 50, 0).await.unwrap();
+ 
+-        assert_eq!(total, 2);
++        assert_eq!(total, 5);
+         let by_id = |id: &str| incidents.iter().find(|i| i.id == id).unwrap();
+         let rca = by_id(&analyzed).rca.as_ref().unwrap();
+         assert_eq!(rca.run_id, run_id);
+@@ -4147,6 +4170,35 @@ mod tests {
+         assert!(!rca.stale);
+         assert!(rca.detail.is_none(), "the list adds no join");
+         assert!(by_id(&never).rca.is_none());
++        let v1 = |id: &str| {
++            let rca = by_id(id).rca.as_ref().expect("a pre-run report shows");
++            (
++                rca.run_id.as_str(),
++                rca.report_format,
++                rca.state,
++                rca.outcome.as_deref(),
++                rca.updated_at,
++            )
++        };
++        let (format, state) = (ReportFormat::V1, RunState::Completed);
++        assert_eq!(v1(&archived), ("v1-0", format, state, None, 200));
++        assert_eq!(v1(&single), ("v1-0", format, state, None, 150));
++        let rca = by_id(&rerun).rca.as_ref().unwrap();
++        assert_eq!(
++            (rca.run_id.as_str(), rca.report_format),
++            (rerun_id.as_str(), ReportFormat::V2),
++            "a run replaces the pre-run report"
++        );
++        for id in [&archived, &single] {
++            let listed = by_id(id).rca.as_ref().unwrap();
++            let mut detail = rca_detail(&org, &incident_row(&org, id).await)
++                .await
++                .unwrap()
++                .unwrap();
++            let fields = detail.detail.take().unwrap();
++            assert_eq!(&detail, listed, "the detail summary is the list summary");
++            assert_eq!(fields.history[0].started_at, listed.updated_at);
++        }
+ 
+         let json = serde_json::to_value(&incidents).unwrap();
+         let json_of = |id: &str| {
+@@ -4161,6 +4213,55 @@ mod tests {
+         assert!(json_of(&analyzed)["rca"].get("current_run").is_none());
+         assert!(json_of(&never)["rca"].is_null());
+         assert!(json_of(&never).as_object().unwrap().contains_key("rca"));
++        assert_eq!(json_of(&archived)["rca"]["report_format"], "v1");
++    }
++
++    /// Each listed incident names the alerts that fired into it and how often; an incident
++    /// with no links lists none, and `alert_count` heals to the junction's firing total.
++    #[cfg(feature = "enterprise")]
++    #[tokio::test]
++    async fn the_list_carries_each_incidents_alert_groups() {
++        use config::meta::alerts::incidents::IncidentAlertGroup;
++        use infra::table::alert_incidents::add_alert_to_incident;
++
++        use crate::alerts::rca_runs::tests::{add_incident, db, new_incident};
++
++        let _db = db().await;
++        let (org, repeat) = new_incident(None).await;
++        let unlinked = add_incident(&org, None).await;
++        for (alert, fired_at) in [("a", 1), ("b", 2), ("a", 3), ("a", 4)] {
++            add_alert_to_incident(
++                &repeat,
++                alert,
++                &format!("{alert}-name"),
++                "alert",
++                fired_at,
++                "manual",
++            )
++            .await
++            .unwrap();
++        }
++
++        let (incidents, _) = list_incidents(&org, None, 50, 0).await.unwrap();
++
++        let by_id = |id: &str| incidents.iter().find(|i| i.id == id).unwrap();
++        let group = |id: &str, count| IncidentAlertGroup {
++            alert_id: id.to_string(),
++            alert_name: format!("{id}-name"),
++            count,
++        };
++        let listed = by_id(&repeat);
++        assert_eq!(
++            listed.alert_groups.as_deref(),
++            Some(&[group("a", 3), group("b", 1)][..])
++        );
++        // Seeded at 1 and incremented per link, so stored is 5: the list heals it to 4.
++        assert_eq!(listed.alert_count, 4);
++        let none = by_id(&unlinked);
++        assert_eq!(none.alert_groups.as_deref(), Some(&[][..]));
++
++        let json = serde_json::to_value(listed).unwrap();
++        assert_eq!(json["alert_groups"][0]["count"], 3);
+     }
+ 
+     /// A turn that could not start fails its run with the turn's code and an actionable reason.
+diff --git a/src/core/src/alerts/rca_live.rs b/src/core/src/alerts/rca_live.rs
+index b7eec8e573c8..23a545bc6156 100644
+--- a/src/core/src/alerts/rca_live.rs
++++ b/src/core/src/alerts/rca_live.rs
+@@ -50,7 +50,7 @@ use super::{
+     rca_turn::RcaTurnError,
+ };
+ use crate::ai_chat::{
+-    CommittedPrefix, ReadError,
++    CommittedPrefix, ReadError, fork,
+     rca_ledger::{RunTranscript, decode_run},
+     rca_thread::{self, RcaThread, Transcript},
+     read_committed_prefix,
+@@ -370,6 +370,9 @@ impl<'a, R: TranscriptReader> RunParts<'a, R> {
+             rca_thread::project_rca_thread(&prefix.events, &turns, active, show_tool_io);
+         thread.run_id = run_id.clone();
+         thread.state_version = session_version(session, self.run, show_tool_io);
++        if !active {
++            thread.reusable_steps = fork::reusable_steps(&prefix.events);
++        }
+         if let Some(lost_from) = prefix.lost_from {
+             thread.truncated = true;
+             thread.saved_through_seq = Some(lost_from - 1);
+@@ -1452,6 +1455,25 @@ pub(crate) mod tests {
+         assert!(live.is_done());
+     }
+ 
++    /// The cancel banner counts the finished steps a Resume keeps; a live run offers none.
++    #[tokio::test]
++    async fn a_cancelled_runs_thread_counts_the_steps_a_resume_keeps() {
++        let _db = db().await;
++        let (org, inc, run_id) = live_run().await;
++        let events = crate::ai_chat::fork::tests::three_steps();
++        let kept = fork::plan_resume(&events).unwrap().reused_steps;
++        assert_ne!(kept, 0);
++        let reader = Reader::new(events);
++        let now = now_micros();
++        let mut live = LiveStream::new(spec(&org, &inc, Some(&run_id)), &reader, now);
++        let frames = live.tick(now).await;
++        assert!(data(&frames, "thread").get("reusable_steps").is_none());
++
++        cancel_write(&org, &run_id).await;
++        let frames = live.tick(now + SEC).await;
++        assert_eq!(data(&frames, "thread")["reusable_steps"], kept);
++    }
++
+     #[tokio::test]
+     async fn lu13_a_terminal_run_without_its_record_ends_30_s_after_the_stream_saw_it() {
+         let _db = db().await;
+diff --git a/src/core/src/alerts/rca_runs.rs b/src/core/src/alerts/rca_runs.rs
+index 63dc19ed20ae..2e4fa6a44cf5 100644
+--- a/src/core/src/alerts/rca_runs.rs
++++ b/src/core/src/alerts/rca_runs.rs
+@@ -1068,7 +1068,7 @@ pub(crate) mod tests {
+         );
+     }
+ 
+-    fn pre_run_topology() -> serde_json::Value {
++    pub(crate) fn pre_run_topology() -> serde_json::Value {
+         serde_json::json!({
+             "nodes": [],
+             "edges": [],
+@@ -1078,7 +1078,7 @@ pub(crate) mod tests {
+         })
+     }
+ 
+-    async fn completed_at(org_id: &str, incident_id: &str, timestamp: i64) {
++    pub(crate) async fn completed_at(org_id: &str, incident_id: &str, timestamp: i64) {
+         let mut event = IncidentEvent::ai_analysis_complete();
+         event.timestamp = timestamp;
+         infra::table::incident_events::append(org_id, incident_id, event)
+@@ -1214,6 +1214,56 @@ pub(crate) mod tests {
+         assert_eq!(v1, ["current report", "older report"]);
+     }
+ 
++    /// The upgrade's `v1-0` pointer reads as the topology did; a new run keeps it as previous.
++    #[tokio::test]
++    async fn a_backfilled_v1_pointer_reads_like_the_pre_run_reports() {
++        let _db = db().await;
++        let (org, inc) = new_incident(Some(pre_run_topology())).await;
++        completed_at(&org, &inc, 150).await;
++        let before = rca_detail(&org, &incident_row(&org, &inc).await)
++            .await
++            .unwrap()
++            .unwrap();
++
++        runs_table::backfill_v1_pointers_for_tests().await.unwrap();
++
++        let row = incident_row(&org, &inc).await;
++        assert_eq!(
++            (row.rca_run_id.as_deref(), row.rca_state.as_deref()),
++            (Some("v1-0"), Some("completed"))
++        );
++        let after = rca_detail(&org, &row).await.unwrap().unwrap();
++        assert_eq!(
++            after, before,
++            "the stored pointer reads as the topology did"
++        );
++        assert_eq!(
++            crate::alerts::rca_turn::cancel_rca_run(&org, &inc, "a.rao@acme.io")
++                .await
++                .unwrap(),
++            None,
++            "a v1 report is no run to cancel"
++        );
++
++        let run_id = start(&org, &inc, RunTrigger::Manual).await;
++
++        let summary =
++            runs_table::summary_from_incident(&incident_row(&org, &inc).await, 0, 600).unwrap();
++        assert_eq!(
++            (summary.run_id.as_str(), summary.report_format),
++            (run_id.as_str(), ReportFormat::V2)
++        );
++        assert_eq!(
++            summary.summary.previous,
++            Some(config::meta::alerts::rca_runs::PreviousResult {
++                run_id: "v1-0".to_string(),
++                outcome: None,
++                confidence: None,
++                ended_at: 200,
++            })
++        );
++    }
++
+     /// The detail names the runs and carries no report text; never analyzed is `None`.
+     #[tokio::test]
+     async fn the_detail_carries_the_runs_but_no_report_text() {
+diff --git a/src/core/src/alerts/rca_turn.rs b/src/core/src/alerts/rca_turn.rs
+index fe708f0d4ea4..9a58c712a7b5 100644
+--- a/src/core/src/alerts/rca_turn.rs
++++ b/src/core/src/alerts/rca_turn.rs
+@@ -86,6 +86,7 @@ use crate::ai_chat::{
+     StreamChatStore,
+     admission::{self, AdmitError, AdmittedTurn},
+     cancel::cancel_chat_turn,
++    fork,
+     rca_ledger::{RunTranscript, TranscriptQuestion, decode_run},
+     rca_thread::{
+         SUBMIT_REPORT, ThreadPart, ThreadStats, ToolPart, project_rca_thread, updated_part,
+@@ -647,6 +648,7 @@ async fn finalize(
+         thread: events
+             .as_deref()
+             .map(|events| project_rca_thread(events, &turns, false, false).stats),
++        reusable_steps: events.as_deref().and_then(fork::reusable_steps),
+         transcript: events.as_deref().map(decode_run),
+         turn_error: turns
+             .iter()
+@@ -713,6 +715,8 @@ struct RunEnd {
+     item: RcaRunItem,
+     thread: Option<ThreadStats>,
+     transcript: Option<RunTranscript>,
++    /// Finished steps a Resume of this run keeps, read from the same transcript.
++    reusable_steps: Option<u32>,
+     turn_error: Option<String>,
+     /// The message of the turn's last error, when the turn ended on this node.
+     turn_message: Option<String>,
+@@ -932,6 +936,7 @@ impl RunEnd {
+             summary: Some(RunSummaryPatch {
+                 steps: Some(thread.steps),
+                 tool_calls: Some(thread.tool_calls),
++                reusable_steps: self.reusable_steps,
+                 ..Default::default()
+             }),
+             ..Default::default()
+@@ -2028,6 +2033,7 @@ async fn end_at_deadline(org_id: &str, run_id: &str) -> bool {
+         org_id: org_id.to_string(),
+         thread: Some(project_rca_thread(&events, &turns, false, false).stats),
+         transcript: Some(decode_run(&events)),
++        reusable_steps: fork::reusable_steps(&events),
+         turn_error: None,
+         turn_message: None,
+         run,
+@@ -2101,6 +2107,7 @@ async fn sweep_run(run: RunRow, now: i64, timeout_secs: u64) -> anyhow::Result<b
+         item,
+         thread: None,
+         transcript: None,
++        reusable_steps: None,
+         turn_error: None,
+         turn_message: None,
+     };
+@@ -2365,6 +2372,7 @@ mod tests {
+             run,
+             thread: Some(project_rca_thread(events, &[], false, false).stats),
+             transcript: Some(decode_run(events)),
++            reusable_steps: fork::reusable_steps(events),
+             turn_error: None,
+             turn_message: None,
+         }
+@@ -3000,6 +3008,27 @@ mod tests {
+         assert_eq!(record_counts(&org), (0, 0, 0, 0));
+     }
+ 
++    /// The list's "Cancelled after N checks" reads the count the drawer and Resume use.
++    #[tokio::test]
++    async fn a_cancelled_run_stores_the_steps_a_resume_keeps_in_the_list_summary() {
++        let _db = db().await;
++        let (org, inc) = new_incident(None).await;
++        let run_id = start(&org, &inc, RunTrigger::Manual).await;
++        cancel_write(&org, &run_id).await;
++        let events = crate::ai_chat::fork::tests::three_steps();
++        let kept = crate::ai_chat::fork::plan_resume(&events)
++            .unwrap()
++            .reused_steps;
++
++        assert!(!end(&org, &run_id, &events, TurnResult::Cancelled).await);
++
++        let summary = infra::table::rca_runs::decode::<serde_json::Value>(
++            incident_row(&org, &inc).await.rca_summary.as_deref(),
++        )
++        .unwrap();
++        assert_eq!(summary["reusable_steps"], kept);
++    }
++
+     #[tokio::test]
+     async fn a_failed_run_gets_its_partial_record() {
+         let _db = db().await;
+diff --git a/src/core/src/traces/service_graph/api.rs b/src/core/src/traces/service_graph/api.rs
+index 08f828613cc3..ce39ce0b0d3f 100644
+--- a/src/core/src/traces/service_graph/api.rs
++++ b/src/core/src/traces/service_graph/api.rs
+@@ -47,6 +47,8 @@ pub struct ServiceGraphQuery {
+     ),
+     params(
+         ("org_id" = String, Path, description = "Organization name"),
++        ("start_time" = Option<i64>, Query, description = "Start of the window (microseconds); with end_time, replaces the last 60 minutes"),
++        ("end_time" = Option<i64>, Query, description = "End of the window (microseconds); with start_time, replaces the last 60 minutes"),
+         ("stream_name" = Option<String>, Query, description = "Optional stream name to filter service graph topology"),
+     ),
+     responses(
+diff --git a/src/infra/src/table/alert_incidents.rs b/src/infra/src/table/alert_incidents.rs
+index 21523fa6a2c3..ab7ea91f92c0 100644
+--- a/src/infra/src/table/alert_incidents.rs
++++ b/src/infra/src/table/alert_incidents.rs
+@@ -17,7 +17,12 @@
+ //!
+ //! Provides CRUD operations for incidents and incident-alert associations.
+ 
+-use config::meta::alerts::rca_runs::{V1_PREVIOUS_REPORTS_KEY, V1_REPORT_KEY};
++use std::collections::HashMap;
++
++use config::meta::alerts::{
++    incidents::IncidentAlertGroup,
++    rca_runs::{V1_PREVIOUS_REPORTS_KEY, V1_REPORT_KEY},
++};
+ use sea_orm::{
+     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter,
+     QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
+@@ -39,6 +44,15 @@ pub struct AutoResolved {
+     pub muted_by_downtime_id: Option<String>,
+ }
+ 
++/// The junction-table truth about one incident's firings.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct IncidentAlertCounts {
++    /// Every firing; heals the denormalized `alert_count`.
++    pub total: i32,
++    /// Every alert that fired into the incident, most-fired first.
++    pub groups: Vec<IncidentAlertGroup>,
++}
++
+ /// The row a new incident starts as. One construction site, so the plain create
+ /// and the on-call promotion's transaction cannot drift as columns are added.
+ fn new_incident(
+@@ -715,44 +729,66 @@ pub async fn resolved_incidents_for_alert_with<C: ConnectionTrait>(
+     Ok(ids.into_iter().filter(|id| resolved.contains(id)).collect())
+ }
+ 
+-/// Get actual alert counts for multiple incidents (source of truth)
+-///
+-/// Returns a HashMap of incident_id -> actual_count from junction table.
+-/// Use this to fix denormalized alert_count fields that may be out of sync.
++/// Firing total plus groups ranked by count desc, then name, then id, stable across pages.
++pub fn rank_alert_groups(mut groups: Vec<IncidentAlertGroup>) -> IncidentAlertCounts {
++    let total = groups.iter().map(|g| g.count).sum();
++    groups.sort_by(|a, b| {
++        b.count
++            .cmp(&a.count)
++            .then_with(|| a.alert_name.cmp(&b.alert_name))
++            .then_with(|| a.alert_id.cmp(&b.alert_id))
++    });
++    IncidentAlertCounts { total, groups }
++}
++
++/// Per-incident firing totals and alert groups; incidents with no links are absent.
+ pub async fn get_alert_counts(
+     incident_ids: &[String],
+-) -> Result<std::collections::HashMap<String, i32>, errors::Error> {
+-    use sea_orm::FromQueryResult;
+-
+-    if incident_ids.is_empty() {
+-        return Ok(std::collections::HashMap::new());
+-    }
+-
++) -> Result<HashMap<String, IncidentAlertCounts>, errors::Error> {
+     let client = get_orm_client_ro().await;
++    get_alert_counts_with(client, incident_ids).await
++}
+ 
+-    #[derive(Debug, FromQueryResult)]
+-    struct CountResult {
+-        incident_id: String,
+-        count: i64,
++pub async fn get_alert_counts_with<C: ConnectionTrait>(
++    conn: &C,
++    incident_ids: &[String],
++) -> Result<HashMap<String, IncidentAlertCounts>, errors::Error> {
++    if incident_ids.is_empty() {
++        return Ok(HashMap::new());
+     }
+ 
+-    let results = alert_incident_alerts::Entity::find()
++    // One grouped scan the PK serves; ranking happens in Rust to stay backend-neutral.
++    let rows: Vec<(String, String, Option<String>, i64)> = alert_incident_alerts::Entity::find()
+         .filter(
+             alert_incident_alerts::Column::IncidentId
+                 .is_in(incident_ids.iter().map(|s| s.as_str())),
+         )
+         .select_only()
+         .column(alert_incident_alerts::Column::IncidentId)
+-        .column_as(alert_incident_alerts::Column::IncidentId.count(), "count")
++        .column(alert_incident_alerts::Column::AlertId)
++        .column_as(alert_incident_alerts::Column::AlertName.max(), "alert_name")
++        .column_as(alert_incident_alerts::Column::AlertId.count(), "count")
+         .group_by(alert_incident_alerts::Column::IncidentId)
+-        .into_model::<CountResult>()
+-        .all(client)
++        .group_by(alert_incident_alerts::Column::AlertId)
++        .into_tuple()
++        .all(conn)
+         .await
+         .map_err(|e| Error::DbError(DbError::SeaORMError(e.to_string())))?;
+ 
+-    Ok(results
++    let mut by_incident: HashMap<String, Vec<IncidentAlertGroup>> = HashMap::new();
++    for (incident_id, alert_id, alert_name, count) in rows {
++        by_incident
++            .entry(incident_id)
++            .or_default()
++            .push(IncidentAlertGroup {
++                alert_name: alert_name.unwrap_or_else(|| alert_id.clone()),
++                alert_id,
++                count: count as i32,
++            });
++    }
++    Ok(by_incident
+         .into_iter()
+-        .map(|r| (r.incident_id, r.count as i32))
++        .map(|(id, groups)| (id, rank_alert_groups(groups)))
+         .collect())
+ }
+ 
+@@ -1209,6 +1245,115 @@ mod tests {
+         );
+     }
+ 
++    fn group(name: &str, count: i32) -> IncidentAlertGroup {
++        IncidentAlertGroup {
++            alert_id: format!("id-{name}"),
++            alert_name: name.to_string(),
++            count,
++        }
++    }
++
++    #[test]
++    fn alert_groups_rank_by_count_then_name_and_keep_every_alert() {
++        let ranked = rank_alert_groups(vec![
++            group("c", 1),
++            group("b", 2),
++            group("a", 1),
++            group("z", 9),
++            group("y", 2),
++            group("d", 1),
++            group("e", 1),
++        ]);
++        assert_eq!(ranked.total, 17);
++        assert_eq!(
++            ranked.groups,
++            [
++                group("z", 9),
++                group("b", 2),
++                group("y", 2),
++                group("a", 1),
++                group("c", 1),
++                group("d", 1),
++                group("e", 1)
++            ]
++        );
++    }
++
++    /// An incident with `firings` (alert name, fired_at) links.
++    async fn incident_with_firings(db: &DatabaseConnection, firings: &[(&str, i64)]) -> String {
++        let incident = new_incident(
++            "acme",
++            "P2",
++            serde_json::json!({"service": "payments"}),
++            "service",
++            1,
++            None,
++            None,
++        )
++        .insert(db)
++        .await
++        .unwrap();
++        for &(name, fired_at) in firings {
++            alert_incident_alerts::ActiveModel {
++                incident_id: Set(incident.id.clone()),
++                alert_id: Set(format!("id-{name}")),
++                alert_fired_at: Set(fired_at),
++                alert_name: Set(name.to_string()),
++                alert_kind: Set("alert".to_string()),
++                correlation_reason: Set(None),
++                created_at: Set(fired_at),
++                resolved_at: Set(None),
++            }
++            .insert(db)
++            .await
++            .unwrap();
++        }
++        incident.id
++    }
++
++    #[tokio::test]
++    async fn alert_counts_fold_repeat_firings_into_ranked_groups() {
++        let db = incidents_db().await;
++        let backend = db.get_database_backend();
++        let stmt = Schema::new(backend).create_table_from_entity(alert_incident_alerts::Entity);
++        db.execute(backend.build(&stmt)).await.unwrap();
++        let repeat =
++            incident_with_firings(&db, &[("b", 1), ("a", 2), ("b", 3), ("c", 4), ("b", 5)]).await;
++        let seven: Vec<(String, i64)> = ["g", "f", "e", "d", "c", "b", "a"]
++            .iter()
++            .enumerate()
++            .map(|(i, n)| (n.to_string(), i as i64))
++            .chain([("f".to_string(), 10), ("g".to_string(), 11)])
++            .collect();
++        let seven_refs: Vec<(&str, i64)> = seven.iter().map(|(n, t)| (n.as_str(), *t)).collect();
++        let wide = incident_with_firings(&db, &seven_refs).await;
++        let unlinked = incident_with_firings(&db, &[]).await;
++
++        let counts = get_alert_counts_with(&db, &[repeat.clone(), wide.clone(), unlinked.clone()])
++            .await
++            .unwrap();
++
++        let repeat = &counts[&repeat];
++        assert_eq!(repeat.total, 5);
++        assert_eq!(repeat.groups, [group("b", 3), group("a", 1), group("c", 1)]);
++        let wide = &counts[&wide];
++        assert_eq!(wide.total, 9);
++        assert_eq!(
++            wide.groups,
++            [
++                group("f", 2),
++                group("g", 2),
++                group("a", 1),
++                group("b", 1),
++                group("c", 1),
++                group("d", 1),
++                group("e", 1)
++            ]
++        );
++        assert!(!counts.contains_key(&unlinked));
++        assert!(get_alert_counts_with(&db, &[]).await.unwrap().is_empty());
++    }
++
+     async fn muted_incident(db: &DatabaseConnection, downtime_id: &str) -> alert_incidents::Model {
+         new_incident(
+             "acme",
+diff --git a/src/infra/src/table/migration/m20261026_000001_backfill_v1_rca_pointer.rs b/src/infra/src/table/migration/m20261026_000001_backfill_v1_rca_pointer.rs
+new file mode 100644
+index 000000000000..7a58a5dc920c
+--- /dev/null
++++ b/src/infra/src/table/migration/m20261026_000001_backfill_v1_rca_pointer.rs
+@@ -0,0 +1,457 @@
++// Copyright 2026 OpenObserve Inc.
++//
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++//! Points pre-run incidents' run summary at their newest v1 report; the list never reads topology.
++
++use std::collections::HashMap;
++
++use config::meta::alerts::rca_runs::{has_v1_reports, v1_reports};
++use sea_orm::{ConnectionTrait, QueryResult};
++use sea_orm_migration::prelude::*;
++
++const PAGE_SIZE: u64 = 500;
++/// `run_id` of the newest pre-run report (`v1_reports`).
++const V1_POINTER: &str = "v1-0";
++const V1_POINTER_PATTERN: &str = "v1-%";
++const COMPLETED: &str = "completed";
++const AI_ANALYSIS_COMPLETE: &str = "ai_analysis_complete";
++
++#[derive(DeriveMigrationName)]
++pub struct Migration;
++
++#[async_trait::async_trait]
++impl MigrationTrait for Migration {
++    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
++        let db = manager.get_connection();
++        let backend = db.get_database_backend();
++        let mut after = String::new();
++        loop {
++            let rows = db.query_all(backend.build(&candidates(&after))).await?;
++            let Some(last) = rows.last() else {
++                break;
++            };
++            after = last.try_get("", "id")?;
++            let incidents: Vec<V1Incident> = rows.iter().filter_map(V1Incident::from_row).collect();
++            if incidents.is_empty() {
++                continue;
++            }
++            let completed_at = completed_at_of(db, &incidents).await?;
++            let pointers: Vec<(&str, i64)> = incidents
++                .iter()
++                .filter_map(|incident| {
++                    let key = (incident.org_id.clone(), incident.id.clone());
++                    let times = completed_at.get(&key).map_or(&[][..], Vec::as_slice);
++                    incident
++                        .newest_report_at(times)
++                        .map(|at| (incident.id.as_str(), at))
++                })
++                .collect();
++            if let Some(stmt) = set_pointers(&pointers) {
++                db.execute(backend.build(&stmt)).await?;
++            }
++        }
++        Ok(())
++    }
++
++    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
++        let db = manager.get_connection();
++        let no_text = || SimpleExpr::from(Option::<String>::None);
++        let no_time = || SimpleExpr::from(Option::<i64>::None);
++        let stmt = Query::update()
++            .table(AlertIncidents::Table)
++            .values([
++                (AlertIncidents::RcaRunId, no_text()),
++                (AlertIncidents::RcaState, no_text()),
++                (AlertIncidents::RcaStartedAt, no_time()),
++                (AlertIncidents::RcaUpdatedAt, no_time()),
++                (AlertIncidents::RcaOutcome, no_text()),
++                (AlertIncidents::RcaConfidence, no_text()),
++                (AlertIncidents::RcaSummary, no_text()),
++            ])
++            .and_where(Expr::col(AlertIncidents::RcaRunId).like(V1_POINTER_PATTERN))
++            .to_owned();
++        db.execute(db.get_database_backend().build(&stmt)).await?;
++        Ok(())
++    }
++}
++
++#[derive(DeriveIden)]
++enum AlertIncidents {
++    Table,
++    Id,
++    OrgId,
++    CreatedAt,
++    TopologyContext,
++    RcaRunId,
++    RcaState,
++    RcaStartedAt,
++    RcaUpdatedAt,
++    RcaOutcome,
++    RcaConfidence,
++    RcaSummary,
++}
++
++#[derive(DeriveIden)]
++enum IncidentEvents {
++    Table,
++    OrgId,
++    IncidentId,
++    Events,
++}
++
++/// An incident with no run pointer whose topology holds pre-run reports.
++struct V1Incident {
++    id: String,
++    org_id: String,
++    created_at: i64,
++    topology: serde_json::Value,
++}
++
++impl V1Incident {
++    fn from_row(row: &QueryResult) -> Option<Self> {
++        let id: String = row.try_get("", "id").ok()?;
++        let topology: serde_json::Value = match row.try_get("", "topology_context") {
++            Ok(topology) => topology,
++            Err(e) => {
++                log::warn!("[MIGRATION] incident {id}: unreadable topology_context, skipped: {e}");
++                return None;
++            }
++        };
++        if !has_v1_reports(&topology) {
++            return None;
++        }
++        Some(Self {
++            id,
++            org_id: row.try_get("", "org_id").ok()?,
++            created_at: row.try_get("", "created_at").ok()?,
++            topology,
++        })
++    }
++
++    /// The newest report's time, by the same rule the incident detail's run history uses.
++    fn newest_report_at(&self, completed_at: &[i64]) -> Option<i64> {
++        let mut completed_at = completed_at.to_vec();
++        completed_at.sort_unstable_by(|a, b| b.cmp(a));
++        v1_reports(&self.topology, &completed_at, self.created_at)
++            .first()
++            .map(|report| report.at)
++    }
++}
++
++fn candidates(after: &str) -> SelectStatement {
++    Query::select()
++        .columns([
++            AlertIncidents::Id,
++            AlertIncidents::OrgId,
++            AlertIncidents::CreatedAt,
++            AlertIncidents::TopologyContext,
++        ])
++        .from(AlertIncidents::Table)
++        .and_where(Expr::col(AlertIncidents::RcaRunId).is_null())
++        .and_where(Expr::col(AlertIncidents::TopologyContext).is_not_null())
++        .and_where(Expr::col(AlertIncidents::Id).gt(after))
++        .order_by(AlertIncidents::Id, Order::Asc)
++        .limit(PAGE_SIZE)
++        .to_owned()
++}
++
++/// `AIAnalysisComplete` times per `(org_id, incident_id)`; with no run yet, every one is pre-run.
++async fn completed_at_of<C: ConnectionTrait>(
++    db: &C,
++    incidents: &[V1Incident],
++) -> Result<HashMap<(String, String), Vec<i64>>, DbErr> {
++    let stmt = Query::select()
++        .columns([
++            IncidentEvents::OrgId,
++            IncidentEvents::IncidentId,
++            IncidentEvents::Events,
++        ])
++        .from(IncidentEvents::Table)
++        .and_where(
++            Expr::tuple([
++                Expr::col(IncidentEvents::OrgId).into(),
++                Expr::col(IncidentEvents::IncidentId).into(),
++            ])
++            .in_tuples(
++                incidents
++                    .iter()
++                    .map(|incident| (incident.org_id.as_str(), incident.id.as_str())),
++            ),
++        )
++        .to_owned();
++    let mut times = HashMap::new();
++    for row in db.query_all(db.get_database_backend().build(&stmt)).await? {
++        let org_id: String = row.try_get("", "org_id")?;
++        let incident_id: String = row.try_get("", "incident_id")?;
++        match row.try_get::<serde_json::Value>("", "events") {
++            Ok(events) => {
++                times.insert((org_id, incident_id), completed_times(&events));
++            }
++            Err(e) => log::warn!(
++                "[MIGRATION] incident {org_id}/{incident_id}: unreadable events, dated without \
++                 them: {e}"
++            ),
++        }
++    }
++    Ok(times)
++}
++
++fn completed_times(events: &serde_json::Value) -> Vec<i64> {
++    events
++        .as_array()
++        .into_iter()
++        .flatten()
++        .filter(|event| {
++            event.get("type").and_then(serde_json::Value::as_str) == Some(AI_ANALYSIS_COMPLETE)
++        })
++        .filter_map(|event| event.get("timestamp").and_then(serde_json::Value::as_i64))
++        .collect()
++}
++
++/// One UPDATE per page that never overwrites a run pointer written since the page was read.
++fn set_pointers(pointers: &[(&str, i64)]) -> Option<UpdateStatement> {
++    let ((first_id, first_at), rest) = pointers.split_first()?;
++    let case = rest.iter().fold(
++        Expr::case(Expr::col(AlertIncidents::Id).eq(*first_id), *first_at),
++        |case, (id, at)| case.case(Expr::col(AlertIncidents::Id).eq(*id), *at),
++    );
++    let at: SimpleExpr = case.into();
++    Some(
++        Query::update()
++            .table(AlertIncidents::Table)
++            .values([
++                (AlertIncidents::RcaRunId, V1_POINTER.into()),
++                (AlertIncidents::RcaState, COMPLETED.into()),
++                (AlertIncidents::RcaStartedAt, at.clone()),
++                (AlertIncidents::RcaUpdatedAt, at),
++                (AlertIncidents::RcaOutcome, Option::<String>::None.into()),
++                (AlertIncidents::RcaConfidence, Option::<String>::None.into()),
++                (AlertIncidents::RcaSummary, Option::<String>::None.into()),
++            ])
++            .and_where(Expr::col(AlertIncidents::Id).is_in(pointers.iter().map(|(id, _)| *id)))
++            .and_where(Expr::col(AlertIncidents::RcaRunId).is_null())
++            .to_owned(),
++    )
++}
++
++#[cfg(test)]
++mod tests {
++    use sea_orm::{Database, DatabaseConnection, Schema, Statement};
++    use sea_orm_migration::MigrationName;
++
++    use super::*;
++    use crate::table::entity::{alert_incidents, incident_events};
++
++    const CREATED_AT: i64 = 50;
++
++    async fn incidents_db() -> DatabaseConnection {
++        let db = Database::connect("sqlite::memory:").await.unwrap();
++        let backend = db.get_database_backend();
++        let schema = Schema::new(backend);
++        for stmt in [
++            schema.create_table_from_entity(alert_incidents::Entity),
++            schema.create_table_from_entity(incident_events::Entity),
++        ] {
++            db.execute(backend.build(&stmt)).await.unwrap();
++        }
++        db
++    }
++
++    async fn exec(db: &DatabaseConnection, sql: &str, values: Vec<sea_orm::Value>) {
++        db.execute(Statement::from_sql_and_values(
++            db.get_database_backend(),
++            sql,
++            values,
++        ))
++        .await
++        .unwrap();
++    }
++
++    async fn incident(db: &DatabaseConnection, id: &str, run_id: Option<&str>, topology: &str) {
++        exec(
++            db,
++            "INSERT INTO alert_incidents (id, org_id, status, severity, group_values, key_type, \
++             topology_context, first_alert_at, last_alert_at, alert_count, created_at, \
++             updated_at, rca_run_id, rca_state, rca_started_at, rca_updated_at) VALUES \
++             (?, 'acme', 'open', 'P2', '{}', 'service', ?, 1, 1, 1, ?, 1, ?, ?, ?, ?)",
++            vec![
++                id.into(),
++                topology.into(),
++                CREATED_AT.into(),
++                run_id.into(),
++                run_id.map(|_| "running").into(),
++                run_id.map(|_| 7_i64).into(),
++                run_id.map(|_| 8_i64).into(),
++            ],
++        )
++        .await;
++    }
++
++    async fn events(db: &DatabaseConnection, org_id: &str, id: &str, events: serde_json::Value) {
++        exec(
++            db,
++            "INSERT INTO incident_events (org_id, incident_id, events) VALUES (?, ?, ?)",
++            vec![org_id.into(), id.into(), events.to_string().into()],
++        )
++        .await;
++    }
++
++    fn complete(timestamp: i64) -> serde_json::Value {
++        serde_json::json!({"type": AI_ANALYSIS_COMPLETE, "timestamp": timestamp})
++    }
++
++    type Pointer = (
++        Option<String>,
++        Option<String>,
++        Option<i64>,
++        Option<i64>,
++        Option<String>,
++    );
++
++    async fn pointer(db: &DatabaseConnection, id: &str) -> Pointer {
++        let row = db
++            .query_one(Statement::from_sql_and_values(
++                db.get_database_backend(),
++                "SELECT rca_run_id, rca_state, rca_started_at, rca_updated_at, rca_summary \
++                 FROM alert_incidents WHERE id = ?",
++                vec![id.into()],
++            ))
++            .await
++            .unwrap()
++            .unwrap();
++        (
++            row.try_get("", "rca_run_id").unwrap(),
++            row.try_get("", "rca_state").unwrap(),
++            row.try_get("", "rca_started_at").unwrap(),
++            row.try_get("", "rca_updated_at").unwrap(),
++            row.try_get("", "rca_summary").unwrap(),
++        )
++    }
++
++    fn v1(at: i64) -> Pointer {
++        (
++            Some(V1_POINTER.to_string()),
++            Some(COMPLETED.to_string()),
++            Some(at),
++            Some(at),
++            None,
++        )
++    }
++
++    fn untouched() -> Pointer {
++        (None, None, None, None, None)
++    }
++
++    #[test]
++    fn test_migration_name() {
++        assert_eq!(Migration.name(), "m20261026_000001_backfill_v1_rca_pointer");
++    }
++
++    /// Each time source of the detail history, in order, and every row the backfill must skip.
++    #[tokio::test]
++    async fn up_points_v1_incidents_at_their_newest_report_and_down_clears_it() {
++        let db = incidents_db().await;
++        let archived = r#"{"suggested_root_cause":"current","previous_analyses":[{"content":"older","archived_at":200}]}"#;
++        let current_only = r#"{"nodes":[],"suggested_root_cause":"current"}"#;
++        incident(&db, "by-archive", None, archived).await;
++        events(
++            &db,
++            "acme",
++            "by-archive",
++            serde_json::json!([complete(150)]),
++        )
++        .await;
++        incident(&db, "by-event", None, current_only).await;
++        let mixed = serde_json::json!([
++            complete(100),
++            complete(150),
++            {"type": "ai_analysis_begin", "timestamp": 300},
++        ]);
++        events(&db, "acme", "by-event", mixed).await;
++        incident(&db, "by-created", None, current_only).await;
++        events(
++            &db,
++            "other-org",
++            "by-created",
++            serde_json::json!([complete(400)]),
++        )
++        .await;
++        incident(&db, "ran", Some("2abcDEFghiJKLmnoPQRstuVWXyz"), archived).await;
++        incident(
++            &db,
++            "no-v1",
++            None,
++            r#"{"nodes":[],"suggested_root_cause":"  "}"#,
++        )
++        .await;
++        incident(&db, "bad-json", None, "{not json").await;
++
++        let manager = SchemaManager::new(&db);
++        Migration.up(&manager).await.unwrap();
++        Migration.up(&manager).await.expect("re-running is a no-op");
++
++        assert_eq!(pointer(&db, "by-archive").await, v1(200));
++        assert_eq!(pointer(&db, "by-event").await, v1(150));
++        assert_eq!(
++            pointer(&db, "by-created").await,
++            v1(CREATED_AT),
++            "another org's events are not this incident's"
++        );
++        let ran = (
++            Some("2abcDEFghiJKLmnoPQRstuVWXyz".to_string()),
++            Some("running".to_string()),
++            Some(7),
++            Some(8),
++            None,
++        );
++        assert_eq!(pointer(&db, "ran").await, ran);
++        assert_eq!(pointer(&db, "no-v1").await, untouched());
++        assert_eq!(pointer(&db, "bad-json").await, untouched());
++
++        Migration.down(&manager).await.unwrap();
++        for id in ["by-archive", "by-event", "by-created"] {
++            assert_eq!(pointer(&db, id).await, untouched(), "{id}");
++        }
++        assert_eq!(pointer(&db, "ran").await, ran);
++    }
++
++    /// Paging resumes past skipped rows, and each page's pointers land in one batched update.
++    #[tokio::test]
++    async fn up_reaches_v1_incidents_past_the_first_page() {
++        let db = incidents_db().await;
++        // Even rows are v1 reports: page 1 both skips rows and batches PAGE_SIZE / 2 pointers.
++        for n in 0..PAGE_SIZE {
++            let topology = if n % 2 == 0 {
++                r#"{"suggested_root_cause":"current"}"#
++            } else {
++                r#"{"nodes":[]}"#
++            };
++            incident(&db, &format!("a{n:04}"), None, topology).await;
++        }
++        incident(&db, "z-last", None, r#"{"suggested_root_cause":"current"}"#).await;
++
++        Migration.up(&SchemaManager::new(&db)).await.unwrap();
++
++        for n in 0..PAGE_SIZE {
++            let expected = if n % 2 == 0 {
++                v1(CREATED_AT)
++            } else {
++                untouched()
++            };
++            assert_eq!(pointer(&db, &format!("a{n:04}")).await, expected, "a{n:04}");
++        }
++        assert_eq!(pointer(&db, "z-last").await, v1(CREATED_AT));
++    }
++}
+diff --git a/src/infra/src/table/migration/mod.rs b/src/infra/src/table/migration/mod.rs
+index 288d146a287b..731b4e5d55c6 100644
+--- a/src/infra/src/table/migration/mod.rs
++++ b/src/infra/src/table/migration/mod.rs
+@@ -235,6 +235,7 @@ mod m20261021_000001_create_public_dashboards;
+ mod m20261021_000001_status_pages_add_favicon_img;
+ mod m20261021_000002_add_search_type_to_search_queue;
+ mod m20261024_000001_add_lease_to_org_cleanup_tasks;
++mod m20261026_000001_backfill_v1_rca_pointer;
+ /// Shared body of the two `folder_id` migrations above; not a migration itself.
+ mod workflow_folder_id;
+ 
+@@ -431,6 +432,14 @@ pub(crate) async fn create_slack_tables<C: sea_orm::ConnectionTrait>(db: &C) ->
+     m20261018_000001_create_slack_tables::create_all(db).await
+ }
+ 
++/// Run the v1 run-pointer backfill over the current rows, for tests in any crate.
++#[cfg(any(test, feature = "test-utils"))]
++pub(crate) async fn backfill_v1_rca_pointer(db: &sea_orm::DatabaseConnection) -> Result<(), DbErr> {
++    m20261026_000001_backfill_v1_rca_pointer::Migration
++        .up(&SchemaManager::new(db))
++        .await
++}
++
+ pub struct Migrator;
+ 
+ #[async_trait::async_trait]
+@@ -654,6 +663,7 @@ impl MigratorTrait for Migrator {
+             Box::new(m20261024_000001_add_lease_to_org_cleanup_tasks::Migration),
+             Box::new(m20261021_000001_create_public_dashboards::Migration),
+             Box::new(m20261021_000002_add_search_type_to_search_queue::Migration),
++            Box::new(m20261026_000001_backfill_v1_rca_pointer::Migration),
+         ]
+     }
+ }
+@@ -733,6 +743,7 @@ mod tests {
+         (118, "m20261024_000001_add_lease_to_org_cleanup_tasks"),
+         (119, "m20261021_000001_create_public_dashboards"),
+         (120, "m20261021_000002_add_search_type_to_search_queue"),
++        (121, "m20261026_000001_backfill_v1_rca_pointer"),
+     ];
+ 
+     // Two branches that each claim the next version merge cleanly, so a reused number must fail
+diff --git a/src/infra/src/table/rca_runs.rs b/src/infra/src/table/rca_runs.rs
+index 3561d305f363..6a7993993b69 100644
+--- a/src/infra/src/table/rca_runs.rs
++++ b/src/infra/src/table/rca_runs.rs
+@@ -21,7 +21,8 @@ use config::meta::alerts::{
+     incidents::IncidentEvent,
+     rca_runs::{
+         RcaRun, RcaRunItem, RcaSummary, ReportFormat, RunError, RunMode, RunState, RunStats,
+-        RunSubjectType, RunSummaryFields, RunTrigger, is_live_blocking, is_stale, next_previous,
++        RunSubjectType, RunSummaryFields, RunTrigger, is_live_blocking, is_stale, is_v1_run_id,
++        next_previous,
+     },
+     rca_steering::SteerRecord,
+ };
+@@ -142,6 +143,7 @@ pub struct RunUpdate {
+ pub struct RunSummaryPatch {
+     pub steps: Option<u32>,
+     pub tool_calls: Option<u32>,
++    pub reusable_steps: Option<u32>,
+     pub detail: Option<Option<String>>,
+     pub cancelled_by: Option<String>,
+     pub unblocked_by: Option<String>,
+@@ -583,6 +585,9 @@ fn merge_summary(mut summary: RunSummaryFields, upd: &RunUpdate) -> RunSummaryFi
+         if let Some(tool_calls) = p.tool_calls {
+             summary.tool_calls = tool_calls;
+         }
++        if p.reusable_steps.is_some() {
++            summary.reusable_steps = p.reusable_steps;
++        }
+         if let Some(detail) = p.detail.as_ref() {
+             summary.detail = detail.clone();
+         }
+@@ -869,6 +874,9 @@ async fn final_stats_with<C: TransactionTrait>(
+             if let Some(tool_calls) = p.tool_calls {
+                 summary.tool_calls = tool_calls;
+             }
++            if p.reusable_steps.is_some() {
++                summary.reusable_steps = p.reusable_steps;
++            }
+             if p.unblocked_by.is_some() {
+                 summary.unblocked_by = p.unblocked_by.clone();
+             }
+@@ -1322,9 +1330,14 @@ pub fn summary_from_incident(
+     );
+     let started_at = inc.rca_started_at.unwrap_or_default();
+     let updated_at = inc.rca_updated_at.unwrap_or(started_at);
++    let report_format = if is_v1_run_id(&run_id) {
++        ReportFormat::V1
++    } else {
++        ReportFormat::V2
++    };
+     Some(RcaSummary {
+         run_id,
+-        report_format: ReportFormat::V2,
++        report_format,
+         state,
+         stale: is_stale(state, updated_at, now_us, rca_timeout_secs),
+         started_at,
+@@ -1336,6 +1349,12 @@ pub fn summary_from_incident(
+     })
+ }
+ 
++/// Runs the v1 run-pointer backfill migration over the current rows; for tests in any crate.
++#[cfg(any(test, feature = "test-utils"))]
++pub async fn backfill_v1_pointers_for_tests() -> Result<(), DbErr> {
++    super::migration::backfill_v1_rca_pointer(get_orm_client_rw().await).await
++}
++
+ #[cfg(test)]
+ mod tests {
+     use config::meta::alerts::{
+diff --git a/web/src/components/RichTextInput.spec.ts b/web/src/components/RichTextInput.spec.ts
+new file mode 100644
+index 000000000000..2a2466517cfe
+--- /dev/null
++++ b/web/src/components/RichTextInput.spec.ts
+@@ -0,0 +1,70 @@
++// Copyright 2026 OpenObserve Inc.
++//
++// This program is free software: you can redistribute it and/or modify
++// it under the terms of the GNU Affero General Public License as published by
++// the Free Software Foundation, either version 3 of the License, or
++// (at your option) any later version.
++//
++// This program is distributed in the hope that it will be useful
++// but WITHOUT ANY WARRANTY; without even the implied warranty of
++// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++// GNU Affero General Public License for more details.
++//
++// You should have received a copy of the GNU Affero General Public License
++// along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++import { afterEach, describe, expect, it } from "vitest";
++import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
++import i18n from "@/locales";
++import RichTextInput from "./RichTextInput.vue";
++
++const chip = (id: string) => ({
++  id,
++  filename: `Analysis · ${id}`,
++  preview: `Analysis · ${id}`,
++  fullContent: `Read-only copy of incident analysis ${id}`,
++  charCount: 40,
++  type: "context",
++});
++
++describe("RichTextInput chip detail card", () => {
++  let wrapper: VueWrapper<any> | undefined;
++  afterEach(() => {
++    wrapper?.unmount();
++    // insertChip places a chip at the document selection; one left by an earlier test misplaces it.
++    window.getSelection()?.removeAllRanges();
++  });
++
++  const openCardOf = async (chipIds: string[], openId: string) => {
++    wrapper = mount(RichTextInput, {
++      props: { modelValue: "" },
++      global: { plugins: [i18n] },
++      attachTo: document.body,
++    });
++    await flushPromises();
++    for (const id of chipIds) wrapper.vm.insertChip(chip(id));
++    await flushPromises();
++    document.querySelector<HTMLElement>(`[data-chip-id="${openId}"]`)?.click();
++    await flushPromises();
++    expect(document.querySelector(".chip-detail-card")).not.toBeNull();
++    return wrapper;
++  };
++
++  it("closes when the composer is cleared, as sending a message does", async () => {
++    const input = await openCardOf(["c1"], "c1");
++    input.vm.clear();
++    await flushPromises();
++    expect(document.querySelector(".reference-chip")).toBeNull();
++    expect(document.querySelector(".chip-detail-card")).toBeNull();
++  });
++
++  it("closes when its chip is removed, and stays open when another chip is", async () => {
++    const input = await openCardOf(["c1", "c2"], "c1");
++    input.vm.removeChip("c2");
++    await flushPromises();
++    expect(document.querySelector(".chip-detail-card")).not.toBeNull();
++    input.vm.removeChip("c1");
++    await flushPromises();
++    expect(document.querySelector(".chip-detail-card")).toBeNull();
++  });
++});
+diff --git a/web/src/components/RichTextInput.vue b/web/src/components/RichTextInput.vue
+index 273149e9f77a..b0d8ac9b8cb3 100644
+--- a/web/src/components/RichTextInput.vue
++++ b/web/src/components/RichTextInput.vue
+@@ -118,6 +118,12 @@ export default defineComponent({
+     const showDetailCard = ref(false);
+     const detailCardContent = ref("");
+     const cardPosition = ref({ top: 0, left: 0, below: false });
++    // The card belongs to its chip: a send (clear), a delete or new references close it.
++    watch(localReferences, (refs) => {
++      if (showDetailCard.value && !refs.some((r) => r.fullContent === detailCardContent.value)) {
++        showDetailCard.value = false;
++      }
++    });
+ 
+     // Escape before embedding in HTML — mirrors anomalySummaryGenerator.ts's esc().
+     // JSON.stringify doesn't escape </>/&, so an unescaped token (e.g. a string value
+diff --git a/web/src/components/alerts/IncidentList.spec.ts b/web/src/components/alerts/IncidentList.spec.ts
+index e97fb73f054c..005bf778ffcb 100644
+--- a/web/src/components/alerts/IncidentList.spec.ts
++++ b/web/src/components/alerts/IncidentList.spec.ts
+@@ -94,6 +94,7 @@ const OTableStub = {
+           <slot name="cell-severity" :row="row" />
+           <slot name="cell-title" :row="row" />
+           <slot name="cell-dimensions" :row="row" />
++          <div data-test="cell-alert_count"><slot name="cell-alert_count" :row="row" /></div>
+           <slot name="cell-actions" :row="row" />
+         </div>
+       </template>
+@@ -140,7 +141,7 @@ function createWrapper() {
+           template:
+             '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+         },
+-        OTooltip: { template: "<span />" },
++        OTooltip: { template: '<span data-test="o-tooltip"><slot name="content" /></span>' },
+       },
+     },
+   });
+@@ -953,4 +954,76 @@ describe("IncidentList.vue", () => {
+       expect(wrapper.vm.currentPage).toBe(1);
+     });
+   });
++
++  describe("Alerts cell", () => {
++    const mountWith = async (incident: Incident) => {
++      (incidentsService.list as any).mockResolvedValue({
++        data: { incidents: [incident], total: 1 },
++      });
++      wrapper = createWrapper();
++      await flushPromises();
++      return wrapper.find('[data-test="cell-alert_count"]');
++    };
++
++    it("renders one name ×count chip per alert group, in API order", async () => {
++      const cell = await mountWith(
++        createIncident({
++          alert_groups: [
++            { alert_id: "a", alert_name: "demo-alert-a", count: 3 },
++            { alert_id: "b", alert_name: "demo-alert-b", count: 1 },
++          ],
++        }),
++      );
++      const chips = cell.findAll('[data-test="incident-alert-group-chip"]');
++      expect(chips.map((c) => c.text().replace(/\s+/g, " "))).toEqual([
++        "demo-alert-a ×3",
++        "demo-alert-b ×1",
++      ]);
++      expect(cell.find('[data-test="incident-alert-group-more"]').exists()).toBe(false);
++    });
++
++    it("shows the top two alerts as chips and the rest in the +N more tooltip", async () => {
++      const cell = await mountWith(
++        createIncident({
++          alert_groups: ["a", "b", "c", "d", "e", "f", "g"].map((id, i) => ({
++            alert_id: id,
++            alert_name: `alert-${id}`,
++            count: 7 - i,
++          })),
++        }),
++      );
++      const chips = cell.findAll('[data-test="incident-alert-group-chip"]');
++      expect(chips.map((c) => c.text().replace(/\s+/g, " "))).toEqual(["alert-a ×7", "alert-b ×6"]);
++      const more = cell.find('[data-test="incident-alert-group-more"]');
++      expect(more.text()).toMatch(/^\+5 more/);
++      const rows = more
++        .find('[data-test="incident-alert-group-list"]')
++        .findAll("span")
++        .map((s) => s.text());
++      expect(rows).toEqual([
++        "alert-c",
++        "×5",
++        "alert-d",
++        "×4",
++        "alert-e",
++        "×3",
++        "alert-f",
++        "×2",
++        "alert-g",
++        "×1",
++      ]);
++    });
++
++    it("falls back to the alert count chip without alert groups", async () => {
++      const cell = await mountWith(createIncident({ alert_count: 7 }));
++      expect(cell.find('[data-test="incident-alert-group-chip"]').exists()).toBe(false);
++      expect(cell.text()).toBe("7");
++    });
++
++    it("shows the count chip for an incident with no linked alerts", async () => {
++      const cell = await mountWith(createIncident({ alert_groups: [], alert_count: 0 }));
++      expect(cell.find('[data-test="incident-alert-group-chip"]').exists()).toBe(false);
++      expect(cell.text()).toBe("0");
++    });
++  });
+ });
+diff --git a/web/src/components/alerts/IncidentList.vue b/web/src/components/alerts/IncidentList.vue
+index 1d1ad869d728..916bec4a2e35 100644
+--- a/web/src/components/alerts/IncidentList.vue
++++ b/web/src/components/alerts/IncidentList.vue
+@@ -207,7 +207,58 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+           </span>
+         </template>
+         <template #cell-alert_count="{ row }">
+-          <OTag type="countChip" value="neutral">{{ row.alert_count }}</OTag>
++          <div
++            v-if="row.alert_groups?.length"
++            class="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
++          >
++            <OTag
++              v-for="group in row.alert_groups.slice(0, 2)"
++              :key="group.alert_id"
++              type="countChip"
++              value="neutral"
++              class="min-w-0"
++              data-test="incident-alert-group-chip"
++            >
++              <!-- One element, so the tooltip anchors on the whole label, truncated name included. -->
++              <span class="flex min-w-0">
++                <span class="truncate">{{ group.alert_name }}</span>
++                <span class="shrink-0">&nbsp;×{{ group.count }}</span>
++              </span>
++              <OTooltip
++                :delay="300"
++                :content="
++                  t(
++                    'alerts.incidents.alertGroupTooltip',
++                    { name: group.alert_name, count: group.count },
++                    group.count,
++                  )
++                "
++              />
++            </OTag>
++            <OTag
++              v-if="row.alert_groups.length > 2"
++              type="countChip"
++              value="neutral"
++              class="shrink-0"
++              data-test="incident-alert-group-more"
++            >
++              {{ t("alerts.incidents.moreAlertGroups", { count: row.alert_groups.length - 2 }) }}
++              <OTooltip :delay="300" :max-width="'28rem'">
++                <template #content>
++                  <div
++                    class="grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1"
++                    data-test="incident-alert-group-list"
++                  >
++                    <template v-for="group in row.alert_groups.slice(2)" :key="group.alert_id">
++                      <span class="truncate">{{ group.alert_name }}</span>
++                      <span class="text-right tabular-nums">×{{ group.count }}</span>
++                    </template>
++                  </div>
++                </template>
++              </OTooltip>
++            </OTag>
++          </div>
++          <OTag v-else type="countChip" value="neutral">{{ row.alert_count }}</OTag>
+         </template>
+         <template #cell-last_alert_at="{ row }">
+           <OTimeCell
+@@ -536,7 +587,7 @@ export default defineComponent({
+         accessorKey: "group_values",
+         resizable: true,
+         hideable: true,
+-        size: 500,
++        size: 320,
+         meta: { align: "left" },
+       },
+       {
+@@ -545,8 +596,8 @@ export default defineComponent({
+         accessorKey: "alert_count",
+         resizable: true,
+         hideable: true,
+-        size: 80,
+-        meta: { align: "right" },
++        size: 260,
++        meta: { align: "left" },
+       },
+       {
+         id: "last_alert_at",
+diff --git a/web/src/components/alerts/IncidentRCAAnalysis.spec.ts b/web/src/components/alerts/IncidentRCAAnalysis.spec.ts
+index 101f35a123a3..028ded3383c3 100644
+--- a/web/src/components/alerts/IncidentRCAAnalysis.spec.ts
++++ b/web/src/components/alerts/IncidentRCAAnalysis.spec.ts
+@@ -333,16 +333,26 @@ describe("IncidentRCAAnalysis", () => {
+       expect(byTest(wrapper, "rca-thread-final-note").exists()).toBe(true);
+     });
+ 
+-    it("TH32: an expired thread shows the expired transcript", async () => {
++    it("TH32: an expired thread of a finished run shows the expired transcript", async () => {
+       answers.thread = null;
+       answers.threadStatus = "expired";
+-      wrapper = mountPanel(liveProps());
++      wrapper = mountPanel(completedProps());
+       await flushPromises();
+ 
+       expect(byTest(wrapper, "rca-thread-empty").text()).toBe(
+         "The transcript of this run is no longer stored.",
+       );
+     });
++
++    it("a live run whose transcript is not stored yet shows the working line", async () => {
++      answers.thread = null;
++      answers.threadStatus = "expired";
++      wrapper = mountPanel(liveProps());
++      await flushPromises();
++
++      expect(byTest(wrapper, "rca-thread-working").exists()).toBe(true);
++      expect(byTest(wrapper, "rca-thread-empty").exists()).toBe(false);
++    });
+   });
+ 
+   describe("TH40 banners from the run summary", () => {
+@@ -376,6 +386,32 @@ describe("IncidentRCAAnalysis", () => {
+       expect(wrapper.emitted("cancel-rca")).toHaveLength(1);
+     });
+ 
++    it("M: a resumed run names the step it resumed from", async () => {
++      wrapper = mountPanel(
++        liveProps({
++          rca: rcaSummary({
++            current_run: rcaRun({
++              trigger: "resume",
++              context_used: {
++                resumed_from: {
++                  run_id: "run-1",
++                  steps: 2,
++                  from_step: { index: 3, stage: "changes", title: "Await flag change actor" },
++                },
++              },
++            }),
++          }),
++          reportRun: rcaRunItem(),
++          reportText: REPORT,
++        }),
++      );
++      await flushPromises();
++
++      expect(byTest(wrapper, "rca-reanalyzing-message").text()).toBe(
++        "Resuming from “Await flag change actor”…",
++      );
++    });
++
+     it("M: Follow in thread scrolls the thread column", async () => {
+       const scrollTo = vi.fn();
+       Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+@@ -1017,7 +1053,7 @@ describe("IncidentRCAAnalysis", () => {
+       });
+       await flushPromises();
+ 
+-      expect(byTest(wrapper, "rca-verdict-state").text()).toBe("Failed");
++      expect(byTest(wrapper, "rca-verdict-state").text()).toBe("Cancelled");
+       expect(byTest(wrapper, "rca-verdict-headline").text()).toBe(
+         "Run cancelled before a verdict. Partial results below",
+       );
+@@ -1304,7 +1340,7 @@ describe("IncidentRCAAnalysis", () => {
+       );
+       // RCA_T0 + 30 min in the store's UTC zone.
+       expect(byTest(wrapper, "rca-paused-deadline").text()).toBe(
+-        "The agent waits until 09:23 for an answer, then closes the run as Blocked.",
++        "The agent waits until 09:23 UTC for an answer, then closes the run as Blocked.",
+       );
+       expect(byTest(wrapper, "rca-thread-question-status").text()).toBe("Waiting for an answer");
+       expect(byTest(wrapper, "rca-steer-question").text()).toContain("Agent asks:");
+@@ -1323,11 +1359,35 @@ describe("IncidentRCAAnalysis", () => {
+       await flushPromises();
+ 
+       expect(byTest(wrapper, "rca-verdict-unblocked").text()).toBe(
+-        "Unblocked by a.rao at 08:58 · change history from a human lead",
++        "Unblocked by a.rao at 08:58 UTC · change history from a human lead",
+       );
+       expect(byTest(wrapper, "rca-thread-question-status").text()).toBe("Answered by a.rao");
+     });
+ 
++    it("R-I9: the deadline and the 'Unblocked by' time are local and name the viewer's zone", async () => {
++      const zone = store.state.timezone;
++      store.state.timezone = "Asia/Kolkata";
++      try {
++        answers.thread = rcaThread({
++          run_id: "run-1",
++          active: false,
++          steps: [rcaStep()],
++          questions: [rcaThreadQuestion()],
++        });
++        answers.steering = rcaSteeringUnblocked();
++        answers.runSummary = rcaRunSummary();
++        wrapper = mountSteerable(completedProps());
++        await flushPromises();
++
++        // read_at = RCA_T0 + 310 s = 08:58:30 UTC = 14:28 in Asia/Kolkata.
++        expect(byTest(wrapper, "rca-verdict-unblocked").text()).toBe(
++          "Unblocked by a.rao at 14:28 GMT+5:30 · change history from a human lead",
++        );
++      } finally {
++        store.state.timezone = zone;
++      }
++    });
++
+     it("H16: a hypothesis action POSTs its body; the row shows 'Pending · <author>' until read", async () => {
+       answers.runSummary = rcaRunSummaryLive();
+       wrapper = mountSteerable(liveProps());
+diff --git a/web/src/components/alerts/IncidentRCAAnalysis.vue b/web/src/components/alerts/IncidentRCAAnalysis.vue
+index 6ed0c983cee2..14c81308a6fe 100644
+--- a/web/src/components/alerts/IncidentRCAAnalysis.vue
++++ b/web/src/components/alerts/IncidentRCAAnalysis.vue
+@@ -97,6 +97,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+         :stage-index="rca.summary.stage_index"
+         :stage="rca.summary.stage"
+         :live-mode="currentRun?.mode ?? null"
++        :live-resume-step="liveResumeStep"
+         :failed-mode="viewedRun?.mode ?? currentRun?.mode ?? null"
+         :has-earlier-report="hasEarlierReport"
+         :error="cardError"
+@@ -293,7 +294,12 @@ import type { RcaReadStatus, RcaRefusal } from "@/composables/useIncidentRca";
+ import { useRcaSteering } from "@/composables/useRcaSteering";
+ import { useViewerTimezone } from "@/composables/downtimes/useViewerTimezone";
+ import { formatTimestampInTimezone } from "@/utils/date";
+-import { humanizeElapsed, isLiveRca, userLocalPart } from "@/utils/incidents/rcaCell";
++import {
++  formatRcaLocalClock,
++  humanizeElapsed,
++  isLiveRca,
++  userLocalPart,
++} from "@/utils/incidents/rcaCell";
+ import { renderRcaReport } from "@/utils/incidents/rcaReportMarkdown";
+ import {
+   finishedStepCount,
+@@ -427,6 +433,12 @@ const aiEnabled = computed(
+ 
+ const live = computed(() => isLiveRca(props.rca));
+ const currentRun = computed(() => props.rca?.current_run ?? null);
++/** Step a resumed live run restarted from. */
++const liveResumeStep = computed(() =>
++  currentRun.value?.trigger === "resume"
++    ? (currentRun.value.context_used?.resumed_from?.from_step.title ?? null)
++    : null,
++);
+ 
+ const findRun = (runId: string | null | undefined) =>
+   runId ? (props.history.find((run) => run.run_id === runId) ?? null) : null;
+@@ -702,14 +714,14 @@ const pausedQuestion = computed(() => {
+   );
+ });
+ 
+-/** The answer deadline in the viewer's local time. */
++/** The answer deadline in the viewer's local time, with its zone. */
+ const deadlineText = computed(() => {
+   if (!waitingInput.value) return null;
+   const deadline = steering.value?.open_question?.deadline_at ?? props.rca?.summary.deadline_at;
+-  return deadline ? formatTimestampInTimezone(deadline, "HH:mm", timezone.value) : null;
++  return deadline ? formatRcaLocalClock(deadline, timezone.value) : null;
+ });
+ 
+-/** "Unblocked by <author> at <time>" from the newest read answer. */
++/** "Unblocked by <author> at <time> <zone>" from the newest read answer, in local time. */
+ const unblocked = computed<RcaUnblockedLine | null>(() => {
+   if (cardState.value !== "analyzed") return null;
+   const answer = rcaUnblockingAnswer(steering.value?.items ?? []);
+@@ -718,7 +730,7 @@ const unblocked = computed<RcaUnblockedLine | null>(() => {
+   const question = thread.value?.questions?.find((q) => q.question_id === answer.question_id);
+   return {
+     author: userLocalPart(author),
+-    time: formatTimestampInTimezone(answer.read_at, "HH:mm", timezone.value),
++    time: formatRcaLocalClock(answer.read_at, timezone.value),
+     need: rcaNeedSubject(question?.need),
+   };
+ });
+diff --git a/web/src/components/alerts/rca/RcaThreadColumn.spec.ts b/web/src/components/alerts/rca/RcaThreadColumn.spec.ts
+index 004aca898281..2076ee566eb7 100644
+--- a/web/src/components/alerts/rca/RcaThreadColumn.spec.ts
++++ b/web/src/components/alerts/rca/RcaThreadColumn.spec.ts
+@@ -286,6 +286,14 @@ describe("RcaThreadColumn", () => {
+       expect(wrapper.findAll('[data-test="rca-thread-step"]')).toHaveLength(0);
+     });
+ 
++    it("a live run whose session is not stored yet shows the working line, not 'no longer stored'", () => {
++      const wrapper = mountColumn({ thread: null, status: "expired", runLive: true });
++
++      expect(byTest(wrapper, "rca-thread-working").exists()).toBe(true);
++      expect(byTest(wrapper, "rca-thread-empty").exists()).toBe(false);
++      expect(wrapper.text()).not.toContain("no longer stored");
++    });
++
+     it("a run with no transcript to read (v1) shows the no-transcript message, not 'No run'", () => {
+       const wrapper = mountColumn({
+         thread: null,
+diff --git a/web/src/components/alerts/rca/RcaThreadColumn.vue b/web/src/components/alerts/rca/RcaThreadColumn.vue
+index e02f20ca2f58..b6a2b627ccae 100644
+--- a/web/src/components/alerts/rca/RcaThreadColumn.vue
++++ b/web/src/components/alerts/rca/RcaThreadColumn.vue
+@@ -101,6 +101,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+         </OButton>
+       </div>
+ 
++      <p
++        v-else-if="!thread && runLive"
++        data-test="rca-thread-working"
++        role="status"
++        class="text-text-secondary text-compact m-0 flex items-center gap-2"
++      >
++        <OSpinner size="xs" />
++        {{ t("alerts.incidents.rcaThread.working") }}
++      </p>
++
+       <ol v-else-if="thread" class="m-0 flex list-none flex-col gap-3.5 p-0">
+         <li
+           v-if="thread.truncated"
+@@ -484,6 +494,8 @@ watch(
+ 
+ const emptyMessage = computed<I18nText | null>(() => {
+   if (props.noTranscript) return t("alerts.incidents.rcaThread.noTranscript");
++  // A live run's session is created after the run starts, so "expired" is only a race there.
++  if (props.runLive && !props.thread && props.status === "expired") return null;
+   switch (props.status) {
+     case "expired":
+       return t("alerts.incidents.rcaThread.transcriptExpired");
+diff --git a/web/src/components/alerts/rca/RcaVerdictCard.spec.ts b/web/src/components/alerts/rca/RcaVerdictCard.spec.ts
+index febcfd7aebc4..7584a085c690 100644
+--- a/web/src/components/alerts/rca/RcaVerdictCard.spec.ts
++++ b/web/src/components/alerts/rca/RcaVerdictCard.spec.ts
+@@ -139,6 +139,23 @@ describe("RcaVerdictCard", () => {
+       );
+     });
+ 
++    it.each([
++      ["after an analyzed run", true],
++      ["after a run that never finished", false],
++    ])("M (resumed %s): names the step the run resumed from", (_label, hasEarlierReport) => {
++      const wrapper = mountCard({
++        cardState: "investigating",
++        liveMode: "fresh",
++        liveResumeStep: "Await flag change actor",
++        hasEarlierReport,
++      });
++
++      expect(shownBanners(wrapper)).toEqual(["rca-reanalyzing-banner"]);
++      expect(byTest(wrapper, "rca-reanalyzing-message").text()).toBe(
++        "Resuming from “Await flag change actor”…",
++      );
++    });
++
+     it("L: the reason, collapsed details, and Retry with the failed mode first", async () => {
+       const wrapper = mountCard({
+         cardState: "failed",
+@@ -644,8 +661,7 @@ describe("RcaVerdictCard", () => {
+         summary: rcaRunSummaryCancelled(),
+       });
+ 
+-      // A stored record reads "Failed"; the headline says it was cancelled.
+-      expect(text(wrapper, "rca-verdict-state")).toBe("Failed");
++      expect(text(wrapper, "rca-verdict-state")).toBe("Cancelled");
+       expect(text(wrapper, "rca-verdict-headline")).toBe(
+         "Run cancelled before a verdict. Partial results below",
+       );
+diff --git a/web/src/components/alerts/rca/RcaVerdictCard.vue b/web/src/components/alerts/rca/RcaVerdictCard.vue
+index a1b83420ff40..2d35bcdde920 100644
+--- a/web/src/components/alerts/rca/RcaVerdictCard.vue
++++ b/web/src/components/alerts/rca/RcaVerdictCard.vue
+@@ -283,9 +283,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+       </template>
+     </OBanner>
+ 
+-    <!-- A re-run of an analyzed incident is live. -->
++    <!-- A re-run of an analyzed incident, or a resumed run, is live. -->
+     <OBanner
+-      v-else-if="cardState === 'investigating' && hasEarlierReport"
++      v-else-if="cardState === 'investigating' && (hasEarlierReport || liveResumeStep)"
+       data-test="rca-reanalyzing-banner"
+       variant="info"
+       inline-actions
+@@ -294,11 +294,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
+         <OSpinner size="xs" />
+       </template>
+       <p data-test="rca-reanalyzing-message" class="text-banner-info-text m-0 text-sm font-medium">
+-        {{
+-          liveMode === "build_on_previous"
+-            ? t("alerts.incidents.rcaRun.reanalyzingBuildOnPrevious")
+-            : t("alerts.incidents.rcaRun.reanalyzingFresh")
+-        }}
++        {{ reanalyzingText }}
+       </p>
+       <template #actions>
+         <OButton
+@@ -487,6 +483,8 @@ const props = withDefaults(
+     stage?: string | null;
+     /** Mode of the live run, for the M banner. */
+     liveMode?: RcaRunMode | null;
++    /** Title of the step the live run resumed from; set only for a resumed run. */
++    liveResumeStep?: string | null;
+     /** Mode of the failed run; Retry offers it first. */
+     failedMode?: RcaRunMode | null;
+     /** A completed run precedes the latest one: M shows, and Retry offers both modes. */
+@@ -507,7 +505,7 @@ const props = withDefaults(
+     pausedStep?: string | null;
+     /** The agent's open question. */
+     pausedQuestion?: string | null;
+-    /** Answer deadline of the paused run in local "HH:mm". */
++    /** Answer deadline of the paused run in local "HH:mm <zone>". */
+     deadlineText?: string | null;
+     /** A completed run unblocked by an answer. */
+     unblocked?: RcaUnblockedLine | null;
+@@ -526,6 +524,7 @@ const props = withDefaults(
+     stageIndex: null,
+     stage: null,
+     liveMode: null,
++    liveResumeStep: null,
+     failedMode: null,
+     hasEarlierReport: false,
+     error: null,
+@@ -645,18 +644,25 @@ const pill = computed<{
+         label: t("alerts.incidents.rcaRun.state.failed"),
+       };
+     default:
+-      // A cancelled run with a partial record reads "Failed"; the recordless card keeps "Cancelled".
+       return {
+         tone: "err",
+         icon: "cancel",
+         spinner: false,
+-        label: partial.value
+-          ? t("alerts.incidents.rcaRun.state.failed")
+-          : t("alerts.incidents.rcaRun.state.cancelled"),
++        label: t("alerts.incidents.rcaRun.state.cancelled"),
+       };
+   }
+ });
+ 
++/** The M banner line: a resumed run names its step, a re-run names its mode. */
++const reanalyzingText = computed<I18nText>(() => {
++  if (props.liveResumeStep) {
++    return t("alerts.incidents.rcaRun.resumingFrom", { step: props.liveResumeStep });
++  }
++  return props.liveMode === "build_on_previous"
++    ? t("alerts.incidents.rcaRun.reanalyzingBuildOnPrevious")
++    : t("alerts.incidents.rcaRun.reanalyzingFresh");
++});
++
+ /** Next to the pill: the live label or the inconclusive qualifier. */
+ const qualifier = computed<I18nText | null>(() => {
+   if (live.value) {
+diff --git a/web/src/locales/languages/ar-SA.json b/web/src/locales/languages/ar-SA.json
+index 790cbfcde90f..74ea566bd4af 100644
+--- a/web/src/locales/languages/ar-SA.json
++++ b/web/src/locales/languages/ar-SA.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · متوسط",
+       "severityLow": "P4 · منخفض",
+       "moreDimensions": "+{count} أكثر",
++      "moreAlertGroups": "+{count} المزيد",
++      "alertGroupTooltip": "{name}: تم الإطلاق {count} مرة | {name}: تم الإطلاق {count} مرة",
+       "filterAll": "الجميع",
+       "filterActive": "نشط",
+       "alertCount": "تنبيهات",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "جارٍ إعادة التحليل من الصفر…",
+         "reanalyzingBuildOnPrevious": "جارٍ البناء على التقرير السابق…",
++        "resumingFrom": "استئناف من “{step}”…",
+         "showDetails": "إظهار التفاصيل",
+         "hideDetails": "إخفاء التفاصيل",
+         "stale": "استمر هذا التحليل وقتًا أطول من المعتاد وقد يكون توقف. لا رسائل جديدة منذ {time} UTC. ألغِه وحاول مجددًا.",
+diff --git a/web/src/locales/languages/de-DE.json b/web/src/locales/languages/de-DE.json
+index 417055b2c9ba..0b89631987c4 100644
+--- a/web/src/locales/languages/de-DE.json
++++ b/web/src/locales/languages/de-DE.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Mittel",
+       "severityLow": "P4 · Niedrig",
+       "moreDimensions": "+{count} weitere",
++      "moreAlertGroups": "+{count} weitere",
++      "alertGroupTooltip": "{name}: {count} Mal ausgelöst | {name}: {count} Mal ausgelöst",
+       "filterAll": "Alle",
+       "filterActive": "Aktiv",
+       "alertCount": "Alarme",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Erneute Analyse von Grund auf …",
+         "reanalyzingBuildOnPrevious": "Aufbauend auf dem vorherigen Bericht …",
++        "resumingFrom": "Wird ab „{step}“ fortgesetzt…",
+         "showDetails": "Details anzeigen",
+         "hideDetails": "Details ausblenden",
+         "stale": "Diese Analyse läuft ungewöhnlich lange und wurde möglicherweise beendet. Seit {time} UTC keine neuen Nachrichten. Brechen Sie sie ab und versuchen Sie es erneut.",
+diff --git a/web/src/locales/languages/en-US.json b/web/src/locales/languages/en-US.json
+index 35a1b807bcdd..badcfba97b08 100644
+--- a/web/src/locales/languages/en-US.json
++++ b/web/src/locales/languages/en-US.json
+@@ -10113,6 +10113,8 @@
+       "severityMedium": "P3 · Medium",
+       "severityLow": "P4 · Low",
+       "moreDimensions": "+{count} more",
++      "moreAlertGroups": "+{count} more",
++      "alertGroupTooltip": "{name}: fired {count} time | {name}: fired {count} times",
+       "filterAll": "All",
+       "filterActive": "Active",
+       "alertCount": "Alerts",
+@@ -10274,6 +10276,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Re-analyzing from scratch…",
+         "reanalyzingBuildOnPrevious": "Building on the previous report…",
++        "resumingFrom": "Resuming from “{step}”…",
+         "showDetails": "Show details",
+         "hideDetails": "Hide details",
+         "stale": "This analysis has been running unusually long and may have stopped. No new messages since {time} UTC. Cancel it and try again.",
+diff --git a/web/src/locales/languages/es-ES.json b/web/src/locales/languages/es-ES.json
+index c1c7a31094d6..f531adbbef18 100644
+--- a/web/src/locales/languages/es-ES.json
++++ b/web/src/locales/languages/es-ES.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Medio",
+       "severityLow": "P4 · Bajo",
+       "moreDimensions": "+{count} más",
++      "moreAlertGroups": "+{count} más",
++      "alertGroupTooltip": "{name}: disparada {count} vez | {name}: disparada {count} veces",
+       "filterAll": "Todos",
+       "filterActive": "Activo",
+       "alertCount": "Alertas",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Reanalizando desde cero…",
+         "reanalyzingBuildOnPrevious": "Basándose en el informe anterior…",
++        "resumingFrom": "Reanudando desde “{step}”…",
+         "showDetails": "Mostrar detalles",
+         "hideDetails": "Ocultar detalles",
+         "stale": "Este análisis lleva más tiempo de lo habitual y puede que se haya detenido. No hay mensajes nuevos desde las {time} UTC. Cancélalo y vuelve a intentarlo.",
+diff --git a/web/src/locales/languages/fr-FR.json b/web/src/locales/languages/fr-FR.json
+index 10cf1aec9626..a5be17fc4e3e 100644
+--- a/web/src/locales/languages/fr-FR.json
++++ b/web/src/locales/languages/fr-FR.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Moyenne",
+       "severityLow": "P4 · Faible",
+       "moreDimensions": "+{count} autres",
++      "moreAlertGroups": "+{count} autres",
++      "alertGroupTooltip": "{name} : déclenchée {count} fois | {name} : déclenchée {count} fois",
+       "filterAll": "Tous",
+       "filterActive": "Actif",
+       "alertCount": "Alertes",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Réanalyse en cours depuis le début…",
+         "reanalyzingBuildOnPrevious": "En s'appuyant sur le rapport précédent…",
++        "resumingFrom": "Reprise à partir de « {step} »…",
+         "showDetails": "Afficher les détails",
+         "hideDetails": "Masquer les détails",
+         "stale": "Cette analyse dure anormalement longtemps et a peut-être cessé. Aucun nouveau message depuis {time} UTC. Annulez-la et réessayez.",
+diff --git a/web/src/locales/languages/it-IT.json b/web/src/locales/languages/it-IT.json
+index f8ff9ba5ec48..b8f78efa9d3e 100644
+--- a/web/src/locales/languages/it-IT.json
++++ b/web/src/locales/languages/it-IT.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Medio",
+       "severityLow": "P4 · Basso",
+       "moreDimensions": "+{count} altri",
++      "moreAlertGroups": "+{count} altri",
++      "alertGroupTooltip": "{name}: attivato {count} volta | {name}: attivato {count} volte",
+       "filterAll": "Tutti",
+       "filterActive": "Attivi",
+       "alertCount": "Avvisi",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Rianalisi da zero…",
+         "reanalyzingBuildOnPrevious": "Analisi basata sul report precedente…",
++        "resumingFrom": "Ripresa da “{step}”…",
+         "showDetails": "Mostra dettagli",
+         "hideDetails": "Nascondi dettagli",
+         "stale": "Questa analisi è in corso da un tempo insolitamente lungo e potrebbe essersi fermata. Nessun nuovo messaggio dalle {time} UTC. Annullala e riprova.",
+diff --git a/web/src/locales/languages/ja-JP.json b/web/src/locales/languages/ja-JP.json
+index 4c4be108a4ab..c6196e7d5ccb 100644
+--- a/web/src/locales/languages/ja-JP.json
++++ b/web/src/locales/languages/ja-JP.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · 中",
+       "severityLow": "P4 · 低",
+       "moreDimensions": "+{count} 件",
++      "moreAlertGroups": "+{count} 件",
++      "alertGroupTooltip": "{name}: {count} 回発火 | {name}: {count} 回発火",
+       "filterAll": "すべて",
+       "filterActive": "アクティブ",
+       "alertCount": "アラート",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "最初から再分析しています…",
+         "reanalyzingBuildOnPrevious": "前回のレポートを基に構築しています…",
++        "resumingFrom": "「{step}」から再開しています…",
+         "showDetails": "詳細を表示",
+         "hideDetails": "詳細を非表示",
+         "stale": "この分析は異常に長時間実行されており、停止した可能性があります。{time} UTC以降、新しいメッセージはありません。キャンセルして再試行してください。",
+diff --git a/web/src/locales/languages/ko-KR.json b/web/src/locales/languages/ko-KR.json
+index 5615c7c47ab5..bce6282bb77e 100644
+--- a/web/src/locales/languages/ko-KR.json
++++ b/web/src/locales/languages/ko-KR.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · 중간",
+       "severityLow": "P4 · 낮음",
+       "moreDimensions": "+{count}개 더",
++      "moreAlertGroups": "+{count}개 더",
++      "alertGroupTooltip": "{name}: {count}회 발생 | {name}: {count}회 발생",
+       "filterAll": "전체",
+       "filterActive": "활성",
+       "alertCount": "알림",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "처음부터 재분석하는 중…",
+         "reanalyzingBuildOnPrevious": "이전 보고서를 기반으로 작성하는 중…",
++        "resumingFrom": "“{step}”부터 재개 중…",
+         "showDetails": "상세 정보 표시",
+         "hideDetails": "상세 정보 숨기기",
+         "stale": "이 분석이 비정상적으로 오래 실행되어 중단되었을 수 있습니다. {time} UTC 이후 새 메시지가 없습니다. 취소하고 다시 시도하세요.",
+diff --git a/web/src/locales/languages/nl-NL.json b/web/src/locales/languages/nl-NL.json
+index 13b1b692aa55..42e4e502ce88 100644
+--- a/web/src/locales/languages/nl-NL.json
++++ b/web/src/locales/languages/nl-NL.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Medium",
+       "severityLow": "P4 · Laag",
+       "moreDimensions": "+{count} meer",
++      "moreAlertGroups": "+{count} meer",
++      "alertGroupTooltip": "{name}: {count} keer afgegaan | {name}: {count} keer afgegaan",
+       "filterAll": "Alles",
+       "filterActive": "Actief",
+       "alertCount": "Alarmen",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Opnieuw analyseren vanaf nul…",
+         "reanalyzingBuildOnPrevious": "Voortbouwen op het vorige rapport…",
++        "resumingFrom": "Hervatten vanaf “{step}”…",
+         "showDetails": "Details tonen",
+         "hideDetails": "Details verbergen",
+         "stale": "Deze analyse loopt ongewoon lang en is mogelijk gestopt. Geen nieuwe berichten sinds {time} UTC. Annuleer en probeer opnieuw.",
+diff --git a/web/src/locales/languages/pl-PL.json b/web/src/locales/languages/pl-PL.json
+index 9b68f6bd0783..42d07d0aa617 100644
+--- a/web/src/locales/languages/pl-PL.json
++++ b/web/src/locales/languages/pl-PL.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Średni",
+       "severityLow": "P4 · Niski",
+       "moreDimensions": "+{count} więcej",
++      "moreAlertGroups": "+{count} więcej",
++      "alertGroupTooltip": "{name}: wyzwolono {count} raz | {name}: wyzwolono {count} razy",
+       "filterAll": "Wszystkie",
+       "filterActive": "Aktywne",
+       "alertCount": "Alerty",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Ponowna analiza od zera…",
+         "reanalyzingBuildOnPrevious": "Kontynuowanie na podstawie poprzedniego raportu…",
++        "resumingFrom": "Wznawianie od „{step}”…",
+         "showDetails": "Pokaż szczegóły",
+         "hideDetails": "Ukryj szczegóły",
+         "stale": "Ta analiza trwa nietypowo długo i mogła się zatrzymać. Brak nowych wiadomości od {time} UTC. Anuluj ją i spróbuj ponownie.",
+diff --git a/web/src/locales/languages/pt-PT.json b/web/src/locales/languages/pt-PT.json
+index fbaf57abc7d2..5fd640fa4726 100644
+--- a/web/src/locales/languages/pt-PT.json
++++ b/web/src/locales/languages/pt-PT.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Médio",
+       "severityLow": "P4 · Baixo",
+       "moreDimensions": "+{count} mais",
++      "moreAlertGroups": "+{count} mais",
++      "alertGroupTooltip": "{name}: disparado {count} vez | {name}: disparado {count} vezes",
+       "filterAll": "Todos",
+       "filterActive": "Ativos",
+       "alertCount": "Alertas",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "A reanalisar de raiz…",
+         "reanalyzingBuildOnPrevious": "A continuar a partir do relatório anterior…",
++        "resumingFrom": "A retomar a partir de “{step}”…",
+         "showDetails": "Mostrar detalhes",
+         "hideDetails": "Ocultar detalhes",
+         "stale": "Esta análise está a demorar mais do que o habitual e pode ter parado. Sem novas mensagens desde {time} UTC. Cancele-a e tente novamente.",
+diff --git a/web/src/locales/languages/ru-RU.json b/web/src/locales/languages/ru-RU.json
+index 7c7a0abf6f0f..b292643fdb9f 100644
+--- a/web/src/locales/languages/ru-RU.json
++++ b/web/src/locales/languages/ru-RU.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Средний",
+       "severityLow": "P4 · Низкий",
+       "moreDimensions": "+ещё {count}",
++      "moreAlertGroups": "+ещё {count}",
++      "alertGroupTooltip": "{name}: сработало {count} раз | {name}: сработало {count} раз",
+       "filterAll": "Все",
+       "filterActive": "Активные",
+       "alertCount": "Оповещения",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Повторный анализ с нуля…",
+         "reanalyzingBuildOnPrevious": "На основе предыдущего отчёта…",
++        "resumingFrom": "Возобновление с шага «{step}»…",
+         "showDetails": "Показать подробности",
+         "hideDetails": "Скрыть подробности",
+         "stale": "Этот анализ выполняется необычно долго и мог остановиться. Новых сообщений с {time} UTC нет. Отмените его и попробуйте снова.",
+diff --git a/web/src/locales/languages/tr-TR.json b/web/src/locales/languages/tr-TR.json
+index df1bd0bf0bf1..d47739e7c73a 100644
+--- a/web/src/locales/languages/tr-TR.json
++++ b/web/src/locales/languages/tr-TR.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Orta",
+       "severityLow": "P4 · Düşük",
+       "moreDimensions": "+{count} daha",
++      "moreAlertGroups": "+{count} daha",
++      "alertGroupTooltip": "{name}: {count} kez tetiklendi | {name}: {count} kez tetiklendi",
+       "filterAll": "Tümü",
+       "filterActive": "Aktif",
+       "alertCount": "Uyarılar",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Sıfırdan yeniden analiz ediliyor…",
+         "reanalyzingBuildOnPrevious": "Önceki raporu temel alarak ilerliyor…",
++        "resumingFrom": "“{step}” adımından devam ediliyor…",
+         "showDetails": "Ayrıntıları göster",
+         "hideDetails": "Ayrıntıları gizle",
+         "stale": "Bu analiz olağandışı uzun süredir çalışıyor ve durmuş olabilir. {time} UTC'den beri yeni mesaj yok. İptal edip tekrar deneyin.",
+diff --git a/web/src/locales/languages/vi-VN.json b/web/src/locales/languages/vi-VN.json
+index c7ce9d155fe4..bb19db2f93ef 100644
+--- a/web/src/locales/languages/vi-VN.json
++++ b/web/src/locales/languages/vi-VN.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · Trung bình",
+       "severityLow": "P4 · Thấp",
+       "moreDimensions": "+{count} nữa",
++      "moreAlertGroups": "+{count} nữa",
++      "alertGroupTooltip": "{name}: đã kích hoạt {count} lần | {name}: đã kích hoạt {count} lần",
+       "filterAll": "Tất cả",
+       "filterActive": "Hoạt động",
+       "alertCount": "Cảnh báo",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "Đang phân tích lại từ đầu…",
+         "reanalyzingBuildOnPrevious": "Đang xây dựng dựa trên báo cáo trước đó…",
++        "resumingFrom": "Tiếp tục từ “{step}”…",
+         "showDetails": "Hiện chi tiết",
+         "hideDetails": "Ẩn chi tiết",
+         "stale": "Phân tích này đã chạy lâu một cách bất thường và có thể đã dừng. Không có tin nhắn mới kể từ {time} UTC. Hãy hủy và thử lại.",
+diff --git a/web/src/locales/languages/zh-CN.json b/web/src/locales/languages/zh-CN.json
+index 3ee703de08f7..62a25dc88f9d 100644
+--- a/web/src/locales/languages/zh-CN.json
++++ b/web/src/locales/languages/zh-CN.json
+@@ -10115,6 +10115,8 @@
+       "severityMedium": "P3 · 中",
+       "severityLow": "P4 · 低",
+       "moreDimensions": "+{count} 更多",
++      "moreAlertGroups": "+{count} 更多",
++      "alertGroupTooltip": "{name}：已触发 {count} 次 | {name}：已触发 {count} 次",
+       "filterAll": "全部",
+       "filterActive": "活跃",
+       "alertCount": "告警",
+@@ -10276,6 +10278,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "正在从头重新分析…",
+         "reanalyzingBuildOnPrevious": "正在基于上一份报告继续分析…",
++        "resumingFrom": "正在从“{step}”继续…",
+         "showDetails": "显示详情",
+         "hideDetails": "隐藏详情",
+         "stale": "此分析运行时间异常长，可能已停止。自 {time} UTC 起没有新消息。请取消后重试。",
+diff --git a/web/src/locales/languages/zh-TW.json b/web/src/locales/languages/zh-TW.json
+index 7d8e53c1dde7..75b201b5453e 100644
+--- a/web/src/locales/languages/zh-TW.json
++++ b/web/src/locales/languages/zh-TW.json
+@@ -10110,6 +10110,8 @@
+       "severityMedium": "P3 · 中",
+       "severityLow": "P4 · 低",
+       "moreDimensions": "+{count} 更多",
++      "moreAlertGroups": "+{count} 更多",
++      "alertGroupTooltip": "{name}：已觸發 {count} 次 | {name}：已觸發 {count} 次",
+       "filterAll": "全部",
+       "filterActive": "作用中",
+       "alertCount": "警示數",
+@@ -10271,6 +10273,7 @@
+       "rcaRun": {
+         "reanalyzingFresh": "正在從頭重新分析…",
+         "reanalyzingBuildOnPrevious": "正在根據先前的報表繼續分析…",
++        "resumingFrom": "從「{step}」繼續…",
+         "showDetails": "顯示詳細資料",
+         "hideDetails": "隱藏詳細資料",
+         "stale": "此分析執行時間異常久，可能已停止。自 {time} UTC 起沒有新訊息。請取消並再試一次。",
+diff --git a/web/src/services/alerts.ts b/web/src/services/alerts.ts
+index 3514029355c6..b27f569c9c7d 100644
+--- a/web/src/services/alerts.ts
++++ b/web/src/services/alerts.ts
+@@ -292,7 +292,7 @@ const alerts = {
+     return http().delete(`/api/${org_identifier}/alerts/deduplication/config`);
+   },
+   get_dedup_summary: (org_identifier: string) => {
+-    return http().get(`/api/${org_identifier}/alerts/dedup/summary`);
++    return http().get(`/api/v2/${org_identifier}/alerts/dedup/summary`);
+   },
+   // Semantic field groups management
+   getSemanticGroups: (org_identifier: string) => {
+diff --git a/web/src/services/incidents.ts b/web/src/services/incidents.ts
+index 9e0695e151af..4fe69da4a562 100644
+--- a/web/src/services/incidents.ts
++++ b/web/src/services/incidents.ts
+@@ -54,6 +54,8 @@ export interface Incident {
+   rca: RcaSummary | null;
+   /** Why no automatic run started for this incident (e.g. "l0_off"), or null. */
+   rca_off_reason?: string | null;
++  /** List only: every alert that fired into the incident and how often, most-fired first. */
++  alert_groups?: { alert_id: string; alert_name: string; count: number }[];
+ }
+ 
+ export type RcaRunState = "running" | "waiting_input" | "completed" | "failed" | "cancelled";
+@@ -102,6 +104,8 @@ export interface RcaSummaryFields {
+   stage_count: number;
+   steps: number;
+   tool_calls: number;
++  /** Ended run: the finished steps a Resume keeps, the drawer's count too. */
++  reusable_steps?: number | null;
+   steered_by: string[];
+   unblocked_by: string | null;
+   /** The error reason of a failed run, or the blocked detail. */
+@@ -301,6 +305,8 @@ export interface RcaThread {
+   truncated: boolean;
+   /** With `truncated`: the last saved seq (-1: none). */
+   saved_through_seq?: number;
++  /** Ended run: the finished steps a Resume keeps; absent when live or nothing to keep. */
++  reusable_steps?: number;
+ }
+ 
+ export type RcaSteerKind = "message" | "answer" | "hypothesis_action" | "guidance";
+diff --git a/web/src/utils/formatters.ts b/web/src/utils/formatters.ts
+index 10ac59a2cf38..fab9eff24886 100644
+--- a/web/src/utils/formatters.ts
++++ b/web/src/utils/formatters.ts
+@@ -361,8 +361,8 @@ export function utcMinuteToTzHhmm(minute: number, timeZone: string): string {
+   return formatter.format(d);
+ }
+ 
+-/** Short display name for an IANA timezone, e.g. "GMT+5:30" or "PST". */
+-export function timezoneAbbr(timeZone: string): string {
++/** Short display name for an IANA timezone at `at` (default now), e.g. "GMT+5:30" or "PST". */
++export function timezoneAbbr(timeZone: string, at: Date = new Date()): string {
+   const formatter = cachedFormatter(
+     abbrFormatters,
+     timeZone,
+@@ -373,7 +373,7 @@ export function timezoneAbbr(timeZone: string): string {
+       }),
+   );
+   if (!formatter) return timeZone;
+-  const parts = formatter.formatToParts(new Date());
++  const parts = formatter.formatToParts(at);
+   return parts.find((p) => p.type === "timeZoneName")?.value ?? timeZone;
+ }
+ 
+diff --git a/web/src/utils/incidents/rcaCell.spec.ts b/web/src/utils/incidents/rcaCell.spec.ts
+index 930ae686eb0c..1c01372ee7af 100644
+--- a/web/src/utils/incidents/rcaCell.spec.ts
++++ b/web/src/utils/incidents/rcaCell.spec.ts
+@@ -338,7 +338,7 @@ const cases: [string, Row, boolean, Expected][] = [
+       kind: "state",
+       label: "Blocked",
+       tone: "warn-strong",
+-      detail: "Needs change history · until 12:30",
++      detail: "Needs change history · until 12:30 UTC",
+       rerunNote: "",
+     },
+   ],
+@@ -378,7 +378,7 @@ const cases: [string, Row, boolean, Expected][] = [
+     },
+   ],
+   [
+-    "SG41: a run stopped on resolve shows its detail",
++    "SG41: a run stopped on resolve is Cancelled, as in the drawer, and shows its detail",
+     {
+       rca: rca({ state: "cancelled", summary: { detail: "Stopped: incident resolved" } }),
+       severity: "P2",
+@@ -386,7 +386,7 @@ const cases: [string, Row, boolean, Expected][] = [
+     true,
+     {
+       kind: "state",
+-      label: "Failed",
++      label: "Cancelled",
+       tone: "err",
+       detail: "Stopped: incident resolved",
+       rerunNote: "",
+@@ -431,7 +431,17 @@ describe("rcaCellModel (01 §12.1, RR-42, 03 VE14/VE44)", () => {
+     },
+   );
+ 
+-  it("SG26: the until time is in the viewer's zone", () => {
++  it("a stored Resume count wins over the steps before the open one", () => {
++    const row = {
++      rca: rca({ state: "cancelled", summary: { steps: 4, reusable_steps: 1 } }),
++      severity: "P2",
++    } as Row;
++    expect(rcaCellModel(row, { rcaEnabled: true, now: NOW }).detail).toBe(
++      gt("alerts.incidents.aiAnalysis.cancelledAfterChecks", { count: 1 }, 1),
++    );
++  });
++
++  it("SG26: the until time is in the viewer's zone and names it", () => {
+     const row = {
+       rca: rca({
+         state: "waiting_input",
+@@ -441,7 +451,7 @@ describe("rcaCellModel (01 §12.1, RR-42, 03 VE14/VE44)", () => {
+       severity: "P2",
+     } as Row;
+     const model = rcaCellModel(row, { rcaEnabled: true, now: NOW, timezone: "Asia/Kolkata" });
+-    expect(model.detail).toBe("Needs change history · until 18:00");
++    expect(model.detail).toBe("Needs change history · until 18:00 GMT+5:30");
+   });
+ });
+ 
+diff --git a/web/src/utils/incidents/rcaCell.ts b/web/src/utils/incidents/rcaCell.ts
+index e6aae6bc2abf..7b4b5764b257 100644
+--- a/web/src/utils/incidents/rcaCell.ts
++++ b/web/src/utils/incidents/rcaCell.ts
+@@ -18,6 +18,7 @@
+ import { gt, raw, type I18nKey, type I18nText } from "@/types/i18n";
+ import type { Incident, RcaBand, RcaOutcome, RcaSummary } from "@/services/incidents";
+ import { formatTimestampInTimezone } from "@/utils/date";
++import { timezoneAbbr } from "@/utils/formatters";
+ 
+ export type RcaCellTone = "muted" | "warn" | "warn-strong" | "ok" | "err";
+ 
+@@ -40,7 +41,7 @@ export interface RcaCellOptions {
+   rcaEnabled: boolean;
+   /** Epoch milliseconds. */
+   now: number;
+-  /** Zone of the "until HH:mm" answer deadline; UTC when not given. */
++  /** Zone of the "until HH:mm <zone>" answer deadline; UTC when not given. */
+   timezone?: string;
+ }
+ 
+@@ -57,6 +58,10 @@ export function humanizeElapsed(ms: number): string {
+   return `${Math.floor(hours / 24)}d`;
+ }
+ 
++/** "18:49 GMT+5:30": the viewer's zone, named because the other RCA times are UTC. */
++export const formatRcaLocalClock = (us: number, timezone: string): string =>
++  `${formatTimestampInTimezone(us, "HH:mm", timezone)} ${timezoneAbbr(timezone, new Date(us / 1000))}`;
++
+ /** "a.rao@acme.io" → "a.rao"; a value without "@" is returned unchanged. */
+ export function userLocalPart(user: string): string {
+   const at = user.indexOf("@");
+@@ -179,7 +184,7 @@ export function rcaCellModel(
+       );
+     }
+     case "waiting_input": {
+-      // "Blocked · Needs change history · until 14:40".
++      // "Blocked · Needs change history · until 14:40 GMT+5:30".
+       const deadline = rca.summary.deadline_at;
+       return state(
+         gt("alerts.incidents.aiAnalysis.blocked"),
+@@ -188,7 +193,7 @@ export function rcaCellModel(
+           raw(rca.summary.detail),
+           deadline
+             ? gt("alerts.incidents.aiAnalysis.until", {
+-                time: formatTimestampInTimezone(deadline, "HH:mm", timezone),
++                time: formatRcaLocalClock(deadline, timezone),
+               })
+             : EMPTY,
+         ),
+@@ -234,9 +239,8 @@ export function rcaCellModel(
+           rerunNote,
+         });
+       }
+-      // Preserve the server's special cancellation reason, including incident resolution.
+-      // The step open at the cancel did not finish, so it is not counted.
+-      const finished = Math.max(rca.summary.steps - 1, 0);
++      // The server's reason wins; the count is the drawer's Resume count when stored.
++      const finished = rca.summary.reusable_steps ?? Math.max(rca.summary.steps - 1, 0);
+       const detail =
+         rca.state === "failed" || rca.summary.detail
+           ? raw(rca.summary.detail)
+@@ -247,7 +251,11 @@ export function rcaCellModel(
+                 finished,
+               )
+             : gt("alerts.incidents.aiAnalysis.cancelledAfterChecks", { count: finished }, finished);
+-      return state(gt("alerts.incidents.aiAnalysis.failed"), "err", detail);
++      const label =
++        rca.state === "failed"
++          ? gt("alerts.incidents.aiAnalysis.failed")
++          : gt("alerts.incidents.rcaRun.state.cancelled");
++      return state(label, "err", detail);
+     }
+   }
+ }
+diff --git a/web/src/utils/incidents/rcaSteering.ts b/web/src/utils/incidents/rcaSteering.ts
+index 27fe87908568..0aa3159dee16 100644
+--- a/web/src/utils/incidents/rcaSteering.ts
++++ b/web/src/utils/incidents/rcaSteering.ts
+@@ -28,7 +28,7 @@ import { userLocalPart } from "./rcaCell";
+ export interface RcaUnblockedLine {
+   /** Local part of the answer's author. */
+   author: string;
+-  /** Local "HH:mm" of the answer's `read_at`. */
++  /** Local "HH:mm <zone>" of the answer's `read_at`. */
+   time: string;
+   /** The need of the question it answered, when known. */
+   need: string | null;
+diff --git a/web/src/utils/incidents/rcaThread.spec.ts b/web/src/utils/incidents/rcaThread.spec.ts
+index 718c9619f7a1..60f3eea8ca99 100644
+--- a/web/src/utils/incidents/rcaThread.spec.ts
++++ b/web/src/utils/incidents/rcaThread.spec.ts
+@@ -178,6 +178,16 @@ describe("rcaThread utils", () => {
+         ),
+       ).toBe(1);
+     });
++
++    it("an ended run counts the steps Resume keeps, not every closed step", () => {
++      // C7: step 3 made no call and shares its message with step 4, so Resume repeats both.
++      const steps = [1, 2, 3, 4].map((index) => rcaStep({ index }));
++      const ended = { active: false, report_submitted: false, steps };
++      expect(finishedStepCount(rcaThread(ended))).toBe(3);
++      expect(finishedStepCount(rcaThread({ ...ended, reusable_steps: 2 }))).toBe(2);
++      // A live thread never carries the Resume count.
++      expect(finishedStepCount(rcaThread({ active: true, steps, reusable_steps: 2 }))).toBe(4);
++    });
+   });
+ 
+   it("Copy thread text has the start, step titles, notes, tool names and key args (TH38)", () => {
+diff --git a/web/src/utils/incidents/rcaThread.ts b/web/src/utils/incidents/rcaThread.ts
+index 16ab3f7e3d3b..856d2f69906b 100644
+--- a/web/src/utils/incidents/rcaThread.ts
++++ b/web/src/utils/incidents/rcaThread.ts
+@@ -158,8 +158,9 @@ export const toolCallsDurationMs = (calls: RcaToolCall[]): number =>
+ export const isInterruptedStep = (step: RcaStep): boolean =>
+   step.tool_calls.some((call) => call.interrupted === true);
+ 
+-/** Count only finished steps; run-end interruptions never count. */
++/** Finished, uninterrupted steps; an ended run counts the steps a Resume keeps. */
+ export function finishedStepCount(thread: RcaThread): number {
++  if (!thread.active && thread.reusable_steps !== undefined) return thread.reusable_steps;
+   const last = thread.steps.length - 1;
+   return thread.steps.filter(
+     (step, idx) =>

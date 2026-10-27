@@ -1,0 +1,12 @@
+[
+  {
+    "title": "Alerts column shows one name ×count chip per alert group, in API order",
+    "action": "new",
+    "verifies": "the incidents list 'Alerts' cell renders one 'name ×count' chip per alert group, most-fired first, instead of a bare count chip"
+  },
+  {
+    "title": "More than two alert groups collapse into a +N more tooltip listing the rest",
+    "action": "new",
+    "verifies": "only the top two alert groups render as chips and the remainder collapses behind a '+N more' tooltip listing each remaining group"
+  }
+]

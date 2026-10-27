@@ -1,0 +1,14 @@
+{
+  "action": "new",
+  "target_spec": "tests/ui-testing/playwright-tests/Alerts/incidents-rca.spec.js",
+  "existing_tests_considered": [
+    "tests/ui-testing/playwright-tests/Alerts/alerts-incident-correlation.spec.js",
+    "tests/ui-testing/playwright-tests/RegressionSet/Alerts/incidents-status-filter.spec.js",
+    "tests/ui-testing/playwright-tests/Workflows/workflows-incidents.spec.js"
+  ],
+  "needs_registration": true,
+  "target_shard": "Alerts (ci_matrix.json testfolder \"Alerts\", actual_folder \"Alerts\")",
+  "edition": "enterprise",
+  "rationale": "No existing spec covers the incidents LIST 'Alerts' column (grouped alert chips) or the RCA drawer. alerts-incident-correlation.spec.js covers incident list/detail/correlation and related-alerts fire counts, but does not assert the new alert_groups chips or any RCA-drawer state. incidents-status-filter.spec.js only covers the status/severity facets. The change is its own feature area (incident list + RCA drawer), the run-context names a dedicated spec_path, and there is no file to append/extend — so a new spec is warranted. It must be registered in the Alerts shard run_files (and the enterprise overlay append section, since the incidents/RCA UI is enterprise-gated).",
+  "notes": "The RCA-drawer behaviors (resumed-run naming, Cancelled vs Failed label, local timezone, thread 'working' line, RichTextInput card close) are all WIRED but depend on the enterprise RCA/AI pipeline reaching specific run states that cannot be forced deterministically through the E2E API. They are already covered by the Vitest unit tests in this PR (web/src/components/**/*.spec.ts). The test plan focuses E2E on the one cross-stack, forceable behavior: the incident list alert_groups chips."
+}

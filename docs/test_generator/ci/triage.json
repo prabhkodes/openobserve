@@ -1,0 +1,33 @@
+{
+  "feature_slug": "incidents-rca",
+  "feature_title": "Alerts Incidents RCA Enhancements",
+  "area": "Alerts",
+  "edition": "enterprise",
+  "needs_e2e": true,
+  "needs_api": true,
+  "spec_filename": "incidents-rca.spec.js",
+  "spec_path": "tests/ui-testing/playwright-tests/Alerts/incidents-rca.spec.js",
+  "playwright_group": "Alerts",
+  "source_files": [
+    "web/src/components/alerts/IncidentList.vue",
+    "web/src/components/alerts/IncidentRCAAnalysis.vue",
+    "web/src/components/alerts/rca/RcaVerdictCard.vue",
+    "web/src/components/alerts/rca/RcaThreadColumn.vue",
+    "web/src/components/RichTextInput.vue",
+    "web/src/services/incidents.ts",
+    "web/src/utils/incidents/rcaCell.ts",
+    "web/src/utils/incidents/rcaThread.ts",
+    "web/src/utils/incidents/rcaSteering.ts"
+  ],
+  "existing_tests_in_diff": false,
+  "skip": false,
+  "skip_reason": "",
+  "rationale": {
+    "edition": "Every changed path is open-source: src/** (openobserve Rust backend), web/src/** (Vue UI) and scripts/translations. There are no enterprise/, o2_enterprise/ or enterprise web-layer paths. No isCloud/isEnterprise/withFeatureGate gate is touched in the changed web/src files; the only cfg(feature=\"enterprise\") in the diff is a routing unit test that documents enterprise routes, not a gated feature. The feature runs on the OSS build. [Raised to enterprise by the edition floor: 7/11 changed UI files are enterprise/cloud-gated.]",
+    "skip": "Not skipped. There is no tests-added label or skip comment in the trigger, and the change is clearly user-facing: it alters incident-list and RCA UI in web/src/components/alerts/**, not docs/CI/comment-only files.",
+    "e2e": "E2E is warranted. The change alters several user-facing flows: the incidents list's alert_count column now renders grouped alert chips with count tooltips, the RCA drawer names the step a resumed run restarts from, cancelled runs read 'Cancelled' instead of 'Failed', and RCA deadline/unblocked times now display the viewer's local zone.",
+    "area": "Alerts. The bulk of the UI changes live in web/src/components/alerts/** (IncidentList, IncidentRCAAnalysis, rca/RcaVerdictCard, rca/RcaThreadColumn), supported by web/src/services/incidents.ts and web/src/utils/incidents/*. Sibling alert specs belong in the Alerts folder.",
+    "group": "Alerts. It is the OSS ci-matrix shard group for the alerts area — the enterprise overlay's append/disabled sections reference an OSS 'Alerts' group, and incident/RCA specs fit that shard.",
+    "existing_tests": "No Playwright E2E specs in the diff. The only test files changed are Vitest unit tests under web/src/**/*.spec.ts (IncidentList.spec.ts, IncidentRCAAnalysis.spec.ts, RcaThreadColumn.spec.ts, RcaVerdictCard.spec.ts, rcaCell.spec.ts, rcaThread.spec.ts, RichTextInput.spec.ts), which are unit coverage, not E2E coverage."
+  }
+}

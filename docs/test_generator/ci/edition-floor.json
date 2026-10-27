@@ -1,0 +1,17 @@
+{
+  "edition_floor": "enterprise",
+  "reason": "7/11 changed UI files are enterprise/cloud-gated",
+  "source_files": 11,
+  "gated_files": {
+    "cloud": [],
+    "enterprise": [
+      "web/src/components/alerts/IncidentList.vue",
+      "web/src/components/alerts/IncidentRCAAnalysis.vue",
+      "web/src/components/alerts/rca/RcaThreadColumn.vue",
+      "web/src/components/alerts/rca/RcaVerdictCard.vue",
+      "web/src/utils/incidents/rcaCell.ts",
+      "web/src/utils/incidents/rcaSteering.ts",
+      "web/src/utils/incidents/rcaThread.ts"
+    ]
+  }
+}

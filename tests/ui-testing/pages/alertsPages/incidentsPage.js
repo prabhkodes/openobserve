@@ -7,6 +7,9 @@ export class IncidentsPage {
     this.statusFilterGroup = '[data-test="incident-status-filter-group"]';
     this.incidentTable = '[data-test="incident-list-table"]';
     this.emptyState = '[data-test="o2-table-empty"]';
+    this.alertGroupChipSel = '[data-test="incident-alert-group-chip"]';
+    this.alertGroupMoreSel = '[data-test="incident-alert-group-more"]';
+    this.alertGroupListSel = '[data-test="incident-alert-group-list"]';
   }
 
   statusTab(status) {
@@ -105,5 +108,65 @@ export class IncidentsPage {
 
   async clickMutedViewDowntime() {
     await this.page.locator('[data-test="incident-detail-muted-view"]').click();
+  }
+
+  /** Grouped alert chips rendered in a row's "Alerts" cell (name ×count each). */
+  alertGroupChips(rowText) {
+    return this._incidentRow(rowText).first().locator(this.alertGroupChipSel);
+  }
+
+  /** The "+N more" chip shown when a row has more than two alert groups. */
+  alertGroupMore(rowText) {
+    return this._incidentRow(rowText).first().locator(this.alertGroupMoreSel);
+  }
+
+  /** The tooltip list holding the collapsed alert groups (inside "+N more"). */
+  alertGroupList() {
+    // OTooltip portals its bubble to <body>, so this is page-scoped, not row-scoped.
+    return this.page.locator(this.alertGroupListSel);
+  }
+
+  async expectAlertGroupChipCount(rowText, expected) {
+    await expect(this.alertGroupChips(rowText)).toHaveCount(expected, { timeout: 20000 });
+  }
+
+  async expectAlertGroupMoreCount(rowText, expected) {
+    await expect(this.alertGroupMore(rowText)).toHaveCount(expected, { timeout: 20000 });
+  }
+
+  /** Normalized chip texts, e.g. ["payment_errors ×3", "all_errors ×2"]. */
+  async getAlertGroupChipTexts(rowText) {
+    const chips = this.alertGroupChips(rowText);
+    await expect(chips.first()).toBeVisible({ timeout: 20000 });
+    const count = await chips.count();
+    const texts = [];
+    for (let i = 0; i < count; i++) {
+      texts.push((await chips.nth(i).innerText()).replace(/\s+/g, ' ').trim());
+    }
+    return texts;
+  }
+
+  /** Normalized "+N more" chip text, e.g. "+1 more". */
+  async getAlertGroupMoreText(rowText) {
+    return (await this.alertGroupMore(rowText).innerText()).replace(/\s+/g, ' ').trim();
+  }
+
+  /** Hover the "+N more" chip and wait for the collapsed-group list to appear. */
+  async openAlertGroupsTooltip(rowText) {
+    const more = this.alertGroupMore(rowText);
+    await expect(more).toBeVisible({ timeout: 20000 });
+    await more.hover();
+    await expect(this.alertGroupList()).toBeVisible({ timeout: 20000 });
+  }
+
+  /** Tooltip span texts: name/count pairs, e.g. ["alert-c", "×5", "alert-d", "×4"]. */
+  async getAlertGroupTooltipTexts() {
+    const spans = this.alertGroupList().locator('span');
+    const count = await spans.count();
+    const texts = [];
+    for (let i = 0; i < count; i++) {
+      texts.push((await spans.nth(i).innerText()).replace(/\s+/g, ' ').trim());
+    }
+    return texts;
   }
 }

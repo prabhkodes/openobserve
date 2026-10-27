@@ -1,0 +1,25 @@
+{
+  "feature_slug": "incidents-rca",
+  "feature_title": "Alerts Incidents RCA Enhancements",
+  "area": "Alerts",
+  "edition": "enterprise",
+  "needs_e2e": true,
+  "needs_api": true,
+  "spec_filename": "incidents-rca.spec.js",
+  "spec_path": "tests/ui-testing/playwright-tests/Alerts/incidents-rca.spec.js",
+  "playwright_group": "Alerts",
+  "source_files": [
+    "web/src/components/alerts/IncidentList.vue",
+    "web/src/components/alerts/IncidentRCAAnalysis.vue",
+    "web/src/components/alerts/rca/RcaVerdictCard.vue",
+    "web/src/components/alerts/rca/RcaThreadColumn.vue",
+    "web/src/components/RichTextInput.vue",
+    "web/src/services/incidents.ts",
+    "web/src/utils/incidents/rcaCell.ts",
+    "web/src/utils/incidents/rcaThread.ts",
+    "web/src/utils/incidents/rcaSteering.ts"
+  ],
+  "existing_tests_in_diff": false,
+  "skip": false,
+  "skip_reason": ""
+}
